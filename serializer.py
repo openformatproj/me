@@ -63,7 +63,6 @@ Details:
 
 # TODO:
 # - Export diagram to JSON (in serializer.py: export_canvas_to_json)
-# - Update docstrings
 
 import json
 from typing import Any
@@ -91,10 +90,10 @@ class DiagramSerializer:
         its ports, inner parts, and the connections between them.
 
         Args:
-            part: An instance of a structural `ml.engine.Part`.
+            part (MlPart): An instance of a structural `ml.engine.Part`.
 
         Returns:
-            A JSON formatted string representing the part's structure.
+            str: A JSON formatted string representing the part's structure.
 
         Raises:
             TypeError: If the provided part is not a structural part.
@@ -144,9 +143,9 @@ class DiagramSerializer:
         the data.
 
         Args:
-            json_data: A string containing the JSON data.
-            main_window: An instance of the diagrams.engine.MainWindow to build
-                         the diagram on.
+            json_data (str): A string containing the JSON data.
+            main_window (MainWindow): An instance of the diagrams.engine.MainWindow to build
+                the diagram on.
 
         Raises:
             ValueError: If the JSON data is malformed or missing the root 'part' object.
