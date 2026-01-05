@@ -1,0 +1,233 @@
+from ml.engine import Part, Port, EventQueue
+from ml.strategies import Execution
+from ml.parts import EventToDataSynchronizer
+from ml.strategies import all_updated
+from me.domains.hardware.digital import Logic, rising_edge, generate_code
+from me.parts.hardware.digital import vcd_monitor
+
+class Register(Part):
+    """
+    A part that behaves like a simple register, updating out_0 with in_0
+    whenever the clock port is updated.
+    """
+    def __init__(self, identifier: str):
+        ports = [
+            Port('clk', Port.IN, type=Logic),
+            Port('rst', Port.IN, type=Logic),
+            Port('in_0', Port.IN, type=Logic),
+            Port('out_0', Port.OUT, type=Logic)
+        ]
+        super().__init__(identifier=identifier, ports=ports, scheduling_condition=all_updated, scheduling_args=('clk',))
+
+    @rising_edge('clk')
+    def behavior(self):
+        if self.get_port('rst').get() == Logic.ONE:
+            self.get_port('out_0').set(Logic.ZERO)
+        else:
+            self.get_port('out_0').set(self.get_port('in_0').get())
+
+class Source(Part):
+    """
+    Generates clock, reset, and input signals for the DUT.
+    """
+    def __init__(self, identifier: str):
+        ports = [
+            Port('clk', Port.OUT, type=Logic),
+            Port('rst', Port.OUT, type=Logic),
+            Port('in_0', Port.OUT, type=Logic),
+            Port('time', Port.IN) # Receives time events to advance simulation steps
+        ]
+        super().__init__(identifier, ports=ports)
+        self.cycle = 0
+
+    def behavior(self):
+        # Consume the time event to clear the port flag
+        if self.get_port('time').is_updated():
+            self.get_port('time').get()
+
+        # Toggle clock
+        clk_val = Logic.ONE if self.cycle % 2 == 0 else Logic.ZERO
+        self.get_port('clk').set(clk_val)
+
+        # Assert reset for the first few cycles
+        if self.cycle < 5:
+            self.get_port('rst').set(Logic.ONE)
+        else:
+            self.get_port('rst').set(Logic.ZERO)
+
+        # Change input data periodically
+        if self.cycle % 4 == 0:
+            self.get_port('in_0').set(Logic.ONE)
+        else:
+            self.get_port('in_0').set(Logic.ZERO)
+
+        self.trace_log(f"Cycle {self.cycle} -> Driving clk={clk_val.value}, rst={self.get_port('rst').peek().value}, in_0={self.get_port('in_0').peek().value}")
+        self.cycle += 1
+
+class Sink(Part):
+    """
+    Consumes the output from the DUT to prevent OverwriteError and verify behavior.
+    """
+    def __init__(self, identifier: str):
+        ports = [Port('in_0', Port.IN, type=Logic)]
+        super().__init__(identifier, ports=ports)
+
+    def behavior(self):
+        if self.get_port('in_0').is_updated():
+            val = self.get_port('in_0').get()
+            self.trace_log(f"Sink -> Output received = {val.value}")
+
+@vcd_monitor('logs/waveforms.vcd', {
+    'clk': 'source.clk',
+    'rst': 'source.rst',
+    'in_0': 'source.in_0',
+    'out_0': 'dut.out_0'
+}, time_path='sync.timer_out')
+class Testbench(Part):
+    def __init__(self, identifier: str):
+        event_queues = [EventQueue('timer_q', EventQueue.IN, size=1)]
+        
+        parts = {
+            'sync': EventToDataSynchronizer('sync', 'timer_in', 'timer_out', float),
+            'source': Source('source'),
+            'dut': Register('dut'),
+            'sink': Sink('sink')
+        }
+        
+        super().__init__(identifier, parts=parts, event_queues=event_queues, execution_strategy=Execution.sequential())
+        
+        # Wire the Timer event to the Synchronizer
+        self.connect_event_queue(self.get_event_queue('timer_q'), parts['sync'].get_event_queue('timer_in'))
+        
+        # Wire Synchronizer time to Source
+        self.connect(parts['sync'].get_port('timer_out'), parts['source'].get_port('time'))
+        
+        # Wire Source signals to DUT
+        self.connect(parts['source'].get_port('clk'), parts['dut'].get_port('clk'))
+        self.connect(parts['source'].get_port('rst'), parts['dut'].get_port('rst'))
+        self.connect(parts['source'].get_port('in_0'), parts['dut'].get_port('in_0'))
+        
+        # Wire DUT output to Sink
+        self.connect(parts['dut'].get_port('out_0'), parts['sink'].get_port('in_0'))
+
+def generate_vhdl_code(llm):
+    import os
+    
+    if llm:
+
+        try:
+            from google import genai
+            from google.genai import errors
+        except ImportError:
+            print("Error: 'google-genai' library not found. Please run: pip install google-genai")
+            return
+        
+        import time
+
+        api_key = os.environ.get("GEMINI_API_KEY")
+        if not api_key:
+            print("Error: GEMINI_API_KEY environment variable is not set.")
+            return
+
+        client = genai.Client(api_key=api_key)
+        model="gemini-2.0-flash"
+
+        def gemini_client(prompt: str) -> str:
+            retries = 3
+            while retries > 0:
+                try:
+                    response = client.models.generate_content(model=model, contents=prompt)
+                    # Clean up Markdown code fences if the model returns them
+                    text = response.text.replace("```vhdl", "").replace("```", "").strip()
+                    return f"-- Generated by {model}\n{text}"
+                except errors.ClientError as e:
+                    if e.code == 429:
+                        print("Quota exceeded (429). Retrying in 35 seconds...")
+                        time.sleep(35)
+                        retries -= 1
+                    else:
+                        raise e
+            raise Exception("Gemini API quota exceeded after retries.")
+        
+        llm_client = gemini_client
+    
+    else:
+
+        llm_client = None
+
+    try:
+        vhdl_code = generate_code(Register('dut'), language="VHDL", entity_name="register", architecture_name="rtl", llm_client=llm_client)
+    except Exception as e:
+        raise Exception(f"VHDL generation failed: {e}")
+
+    output_dir = "gen"
+    if not os.path.exists(output_dir):
+        os.makedirs(output_dir)
+
+    filename = os.path.join(output_dir, "register.vhd")
+    with open(filename, "w") as f:
+        f.write(vhdl_code)
+    print(f"VHDL code generated in {filename}")
+
+def view_testbench_diagram():
+    """
+    Visualizes the testbench structure using the diagrams tool.
+    """
+    try:
+        from me.serializer import DiagramSerializer
+        from diagrams.engine import MainWindow
+        from PyQt5.QtWidgets import QApplication
+        import sys
+    except ImportError as e:
+        print(f"Error importing diagram tools: {e}")
+        return
+
+    # Instantiate the testbench
+    # Note: The vcd_monitor decorator will automatically add the VCDMonitor part.
+    tb = Testbench('tb')
+    
+    # Serialize to JSON
+    serializer = DiagramSerializer()
+    try:
+        json_output = serializer.export_part_to_json(tb)
+    except Exception as e:
+        print(f"Error serializing diagram: {e}")
+        return
+
+    # Initialize Qt Application
+    app = QApplication.instance()
+    if not app:
+        app = QApplication(sys.argv)
+
+    # Create Main Window and load diagram
+    main_window = MainWindow(enable_logging=True)
+    serializer.import_part_from_json(json_output, main_window)
+    
+    print("Opening diagram viewer...")
+    sys.exit(main_window.start())
+
+def simulate():
+    from ml.event_sources import Timer
+    from ml.tracer import Tracer
+    from ml.enums import LogLevel, OnFullBehavior
+    # Configure Tracer
+    Tracer.start(LogLevel.INFO, 1.0, "logs/simulation_trace.log", "logs/simulation_errors.log")
+    
+    # Setup Simulation
+    tb = Testbench('tb')
+    tb.init()
+    timer = Timer('timer', interval_seconds=0.1, duration_seconds=2.0, on_full=OnFullBehavior.DROP)
+    
+    tb.connect_event_source(timer, 'timer_q')
+    
+    # Run Simulation
+    tb.start(lambda _: timer.stop_event_is_set())
+    timer.start()
+    tb.wait()
+    tb.term()
+    Tracer.stop()
+
+if __name__ == "__main__":
+    simulate()
+    # view_testbench_diagram()
+    # generate_vhdl_code(llm=True)

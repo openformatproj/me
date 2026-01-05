@@ -1,0 +1,40 @@
+Generate the VHDL architecture based on the following Python behavior:
+{{ behavior_code }}
+
+Guidelines:
+- **Latch Prevention**: Ensure that all signals are assigned a value in every branch of conditional statements to avoid inferring latches, unless a latch is explicitly intended.
+- **Variables**: Use VHDL variables (declared inside the process) for intermediate calculations where the updated value is needed immediately within the same clock cycle.
+- **Signals**: Use signal assignments (`<=`) for ports and state variables.
+- **Logic Levels**: Map `Logic.ONE` to `'1'`, `Logic.ZERO` to `'0'`, and `Logic.Z` to `'Z'`.
+- **Synchronous Logic**: Use `rising_edge(clk)` for functions decorated with `@rising_edge`.
+- **Structure**: The output must be a single VHDL process.
+
+Failure Conditions:
+- Instantiation of variables that are not finite (`Logic`, `bool`, `Enum`...) or not fixed-point inside the behavior.
+- Use of functions that instantiate non-finite variables.
+- Use of dynamic data structures (e.g., lists, dictionaries) that change size at runtime.
+- Use of file I/O operations or system calls.
+- Use of recursive function calls.
+- Use of infinite loops or loops with bounds not determinable at compile time.
+In these cases, the generation must fail.
+
+Example:
+Python:
+    @rising_edge('clk')
+    def behavior(self):
+        if self.get_port('rst').get() == Logic.ONE:
+            self.get_port('q').set(Logic.ZERO)
+        else:
+            self.get_port('q').set(self.get_port('d').get())
+
+VHDL:
+    process(clk)
+    begin
+        if rising_edge(clk) then
+            if rst = '1' then
+                q <= '0';
+            else
+                q <= d;
+            end if;
+        end if;
+    end process;
