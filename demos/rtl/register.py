@@ -112,6 +112,7 @@ class Testbench(Part):
 
 def generate_vhdl_code(llm):
     import os
+    import sys
     
     if llm:
 
@@ -145,6 +146,15 @@ def generate_vhdl_code(llm):
                         print("Quota exceeded (429). Retrying in 35 seconds...")
                         time.sleep(35)
                         retries -= 1
+                    elif e.code == 404:
+                        print(f"Error: Model '{model}' not found. Please verify the model name.")
+                        print("Available models:")
+                        try:
+                            for m in client.models.list():
+                                print(f" - {m.name}")
+                        except Exception as list_e:
+                            print(f"Failed to list models: {list_e}")
+                        sys.exit(0)
                     else:
                         raise e
             raise Exception("Gemini API quota exceeded after retries.")
