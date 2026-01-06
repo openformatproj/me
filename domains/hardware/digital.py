@@ -87,7 +87,14 @@ def generate_code(part: Part, language: str = "VHDL", entity_name: Optional[str]
         prompt = prompt_template.render(
             behavior_code=behavior_code
         )
-        architecture_body = llm_client(prompt)
+        generated_behavior = llm_client(prompt)
+        indented_behavior = "\n".join(["    " + line for line in generated_behavior.splitlines()])
+        architecture_body = (
+            f"\narchitecture {architecture_name} of {entity_name} is\n"
+            f"begin\n\n"
+            f"{indented_behavior}\n\n"
+            f"end {architecture_name};"
+        )
     else:
         try:
             behavior_code = inspect.getsource(part.behavior)
