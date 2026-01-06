@@ -1,14 +1,15 @@
 - [openformatproj/me (Modeling Environment)](#openformatprojme-modeling-environment)
   - [Introduction](#introduction)
-  - [Domains](#domains)
-    - [Hardware / Digital](#hardware--digital)
+  - [Domains and Parts](#domains-and-parts)
+    - [Hardware](#hardware)
+      - [Digital](#digital)
   - [Demos](#demos)
     - [RTL](#rtl)
       - [Register](#register)
-      - [Definition](#definition)
-      - [Simulation \& Waveforms](#simulation--waveforms)
-      - [Visualization](#visualization)
-      - [Code Generation](#code-generation)
+        - [Definition](#definition)
+        - [Simulation](#simulation)
+        - [Visualization](#visualization)
+        - [Code Generation](#code-generation)
 - [License](#license)
 
 # openformatproj/me (Modeling Environment)
@@ -19,9 +20,11 @@ This engine integrates the [`ml`](https://openformatproj.github.io/ml-docs/) fra
 
 The `me` project serves as a bridge between abstract modeling, simulation, visualization, and implementation. It provides domain-specific libraries (such as digital hardware) and tools to visualize system architectures or generate target code (like VHDL) from Python-based behavioral descriptions. It also handles a more advanced configuration management and attributes propagation.
 
-## Domains
+## Domains and Parts
 
-### Hardware / Digital
+### Hardware
+
+#### Digital
 
 The framework includes support for modeling digital logic.
 
@@ -52,7 +55,7 @@ Consider, however, that a RTL `Part` corresponds and maps to a single VHDL/Veril
 
 This demo (`demos/rtl/register.py`) shows how it's possible to define a RTL part using `ml`, simulate it through a testbench, generate waveforms, view the testbench diagram, and even generate the corresponding VHDL code.
 
-#### Definition
+##### Definition
 
 The register is defined as a `Part` with input/output ports and a behavior method decorated to run on clock edges.
 
@@ -79,7 +82,7 @@ class Register(Part):
             self.get_port('out_0').set(self.get_port('in_0').get())
 ```
 
-#### Simulation & Waveforms
+##### Simulation
 
 The testbench wires a stimulus generator `Source` and a sink `Sink` to the DUT.
 
@@ -179,7 +182,7 @@ Thanks to `@vcd_monitor` it's possible to probe signals and create a VCD file to
 
 The simulation is performed by running `simulate()`. <a href="#figure-1">Figure 1</a> shows the outcome of the VCD monitor, if enabled.
 
-#### Visualization
+##### Visualization
 
 The structure of the testbench can be serialized and visualized using the `diagrams` integration. <a href="#figure-2">Figure 2</a> shows the outcome of executing `view_testbench_diagram()`.
 
@@ -188,7 +191,7 @@ The structure of the testbench can be serialized and visualized using the `diagr
 ![Figure 2: Testbench structure visualization](img/2.png)
 <p align="center">Figure 2: Testbench structure visualization</p>
 
-#### Code Generation
+##### Code Generation
 
 The framework can generate VHDL code by combining Jinja2 templates for the entity definition and LLM calls (e.g., Google Gemini) to translate the Python behavior into VHDL architecture.
 
