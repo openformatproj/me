@@ -1,24 +1,24 @@
-Generate the VHDL architecture based on the following Python behavior:
+Generate the VHDL process block based on the following Python behavior:
 {{ behavior_code }}
 
 Guidelines:
-- **Latch Prevention**: Ensure that all signals are assigned a value in every branch of conditional statements to avoid inferring latches, unless a latch is explicitly intended.
-- **Variables**: Use VHDL variables (declared inside the process) for intermediate calculations where the updated value is needed immediately within the same clock cycle.
-- **Signals**: Use signal assignments (`<=`) for ports and state variables.
+- **Latch Prevention**: Ensure that all signals are assigned a value in every branch of conditional statements to avoid inferring latches, unless a latch is explicitly intended with a comment.
+- **State & Variables**: Map Python instance attributes (e.g., `self.cnt`) to VHDL variables declared **inside** the process (before `begin`). Use variables for intermediate values only if strictly needed (e.g. to preserve read-after-write semantics). Do not introduce variables for direct assignments.
+- **Signals**: Use signal assignments (`<=`) ONLY for output ports.
+- **Data Types**: Map `Logic` to `std_logic`, `Enum` to VHDL enumerated types, and Python `int` (or `float`) to VHDL `integer` (or `fixed_pkg` types).
 - **Logic Levels**: Map `Logic.ONE` to `'1'`, `Logic.ZERO` to `'0'`, and `Logic.Z` to `'Z'`.
 - **Synchronous Logic**: Use `rising_edge(clk)` for functions decorated with `@rising_edge`.
 - **Structure**: The output must be a single VHDL process.
 
 Failure Conditions:
-- Instantiation of variables that are not finite (`Logic`, `bool`, `Enum`...) or not fixed-point inside the behavior.
-- Use of functions that instantiate non-finite variables.
-- Use of dynamic data structures (e.g., lists, dictionaries) that change size at runtime.
+- Use of scalar variables that are neither finite values (`Logic`, `bool`, `Enum`...) nor numeric types (`int`, `float`...).
+- Use of data structures (e.g., lists, dictionaries) that dynamically change size at runtime.
 - Use of file I/O operations or system calls.
 - Use of recursive function calls.
 - Use of infinite loops or loops with bounds not determinable at compile time.
 In these cases, the generation must fail.
 
-Example:
+Example 1:
 Python:
     @rising_edge('clk')
     def behavior(self):
@@ -36,5 +36,30 @@ VHDL:
             else
                 q <= d;
             end if;
+        end if;
+    end process;
+
+Example 2:
+Python:
+    self.internal_state = Logic.ZERO
+    @rising_edge('clk')
+    def behavior(self):
+        if self.get_port('rst').get() == Logic.ONE:
+            self.internal_state = Logic.ZERO
+        else:
+            self.internal_state = self.get_port('d').get()
+        self.get_port('q').set(self.internal_state)
+
+VHDL:
+    process(clk)
+        variable internal_state : std_logic := '0';
+    begin
+        if rising_edge(clk) then
+            if rst = '1' then
+                internal_state := '0';
+            else
+                internal_state := d;
+            end if;
+            q <= internal_state;
         end if;
     end process;
