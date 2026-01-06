@@ -97,18 +97,18 @@ class Testbench(Part):
         super().__init__(identifier, parts=parts, event_queues=event_queues, execution_strategy=Execution.sequential())
         
         # Wire the Timer event to the Synchronizer
-        self.connect_event_queue(self.get_event_queue('timer_q'), parts['sync'].get_event_queue('timer_in'))
+        self.wire_event('timer_q', 'sync.timer_in')
         
         # Wire Synchronizer time to Source
-        self.connect(parts['sync'].get_port('timer_out'), parts['source'].get_port('time'))
+        self.wire('sync.timer_out', 'source.time')
         
         # Wire Source signals to DUT
-        self.connect(parts['source'].get_port('clk'), parts['dut'].get_port('clk'))
-        self.connect(parts['source'].get_port('rst'), parts['dut'].get_port('rst'))
-        self.connect(parts['source'].get_port('in_0'), parts['dut'].get_port('in_0'))
+        self.wire('source.clk', 'dut.clk')
+        self.wire('source.rst', 'dut.rst')
+        self.wire('source.in_0', 'dut.in_0')
         
         # Wire DUT output to Sink
-        self.connect(parts['dut'].get_port('out_0'), parts['sink'].get_port('in_0'))
+        self.wire('dut.out_0', 'sink.in_0')
 
 def generate_vhdl_code(llm):
     import os
