@@ -81,7 +81,7 @@ class Register(Part):
 
 #### Simulation & Waveforms
 
-The testbench wires a source generator to the register and a sink.
+The testbench wires a stimulus generator `Source` and a sink `Sink` to the DUT.
 
 ```python
 class Source(Part):
@@ -231,7 +231,7 @@ begin
 end rtl;
 ```
 
-However, running `generate_vhdl_code(llm=True)` produces:
+While running `generate_vhdl_code(llm=True)` produces a complete code:
 
 ```vhdl
 library IEEE;
