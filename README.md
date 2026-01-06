@@ -34,7 +34,7 @@ The `me` project serves as a bridge between abstract modeling, simulation, visua
 
 The framework includes support for modeling digital logic.
 
--   **Logic Types**: `std_logic` equivalent (`Logic` enum with '0', '1', 'X', 'Z', etc.).
+-   **Logic Types**: VHDL `std_logic` or Verilog `logic` equivalent (`Logic` enum with '0', '1', 'X', 'Z', etc.).
 -   **Code Generation**: Automatic generation of VHDL entity and architecture from Python `Part` definitions using template-based generation and LLM integration (Gemini).
 -   **Monitoring**: `@vcd_monitor` for generating Value Change Dump (VCD) files compatible with waveform viewers like GTKWave.
 
