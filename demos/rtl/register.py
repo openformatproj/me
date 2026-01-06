@@ -131,7 +131,7 @@ def generate_vhdl_code(llm):
             return
 
         client = genai.Client(api_key=api_key)
-        model="gemini-2.0-flash"
+        model="gemini-2.5-flash-lite"
 
         def gemini_client(prompt: str) -> str:
             retries = 3
