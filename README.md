@@ -10,6 +10,12 @@
         - [Simulation](#simulation)
         - [Visualization](#visualization)
         - [Code Generation](#code-generation)
+- [Tags](#tags)
+- [Improvement Areas](#improvement-areas)
+- [Contributing](#contributing)
+  - [Ways to Contribute](#ways-to-contribute)
+  - [Contribution Workflow](#contribution-workflow)
+  - [Contributor Acknowledgment](#contributor-acknowledgment)
 - [License](#license)
 
 # openformatproj/me (Modeling Environment)
@@ -266,6 +272,62 @@ begin
 
 end rtl;
 ```
+
+# Tags
+
+`python`, `simulation`, `hardware`, `digital-design`, `rtl`, `vhdl`, `verilog`, `code-generation`, `eda`, `electronic-design-automation`, `component-based`, `MBSE`, `model-based-systems-engineering`, `systems-engineering`
+
+# Improvement Areas
+
+The project is currently in an early stage. While the core engine and the digital domain proof-of-concept are functional, there are significant opportunities for growth:
+
+1.  **Graphical System Design**: Currently, systems are defined in Python code and then visualized. The goal is to enable a **diagram-first workflow**, where users can drag-and-drop parts, connect them graphically, and generate the corresponding Python and HDL code.
+2.  **Multi-Language Support**: Extend the code generation capabilities beyond VHDL to support **Verilog**, **SystemVerilog**, and **SystemC**, making the tool adaptable to different industry flows.
+3.  **Analog & Mixed-Signal Modeling**: Introduce domains for continuous-time physics and analog electronics (transfer functions, state-space models) to enable true **cyber-physical system (CPS)** simulation.
+4.  **Advanced Verification Features**: Implement features inspired by UVM (Universal Verification Methodology), such as constrained random stimulus generation, functional coverage collection, and assertion-based verification.
+5.  **Standard IP Library**: Develop a comprehensive library of standard digital components (FIFOs, ALUs, memories) and bus interfaces (AXI, Wishbone) to accelerate design assembly.
+6.  **EDA Tool Integration**: Create hooks to automatically launch synthesis, place-and-route, and formal verification tools (e.g., Yosys, Vivado, Quartus) directly from the environment.
+7.  **Configuration Management**: Define attributes of Parts and Ports, and propagate and validate configuration attributes across the hierarchy of sub-systems and connections.
+
+# Contributing
+
+We warmly welcome contributions to enhance this framework! Whether you're fixing a bug, adding a new feature, improving documentation, or suggesting new ideas, your input is valuable.
+
+## Ways to Contribute
+
+*   **Bug Reports**: If you find a bug, please open an issue detailing the problem, steps to reproduce, and your environment.
+*   **Feature Requests**: Have an idea for a new feature or an improvement to an existing one? Open an issue to discuss it.
+*   **Code Contributions**: Implement new features, fix bugs, or refactor code. See the [Improvement Areas](#improvement-areas) for inspiration.
+*   **Documentation**: Improve code comments or add other explanatory documents.
+*   **Testing**: Add or improve unit tests, integration tests, or simulation scenarios.
+
+## Contribution Workflow
+
+If you'd like to contribute code or documentation, please follow these general steps:
+
+1.  **Discuss (for major changes)**: For significant changes (e.g., new core features, large refactors), please open an issue first to discuss your ideas. This helps ensure your efforts align with the project's direction and avoids duplicate work.
+2.  **Fork the Repository**: Create your own fork of the project on GitHub.
+3.  **Create a Branch**: Create a new branch in your fork for your feature or bug fix.
+    ```bash
+    git checkout -b your-descriptive-branch-name
+    ```
+4.  **Make Your Changes**: Implement your changes, adhering to any existing code style if possible.
+5.  **Test Your Changes**: Ensure your changes work as expected and do not introduce new issues.
+6.  **Commit Your Changes**: Write clear, concise commit messages.
+7.  **Push to Your Fork**: Push your changes to your branch on your fork.
+    ```bash
+    git push origin your-descriptive-branch-name
+    ```
+8.  **Submit a Pull Request (PR)**: Open a pull request from your branch to the `master` (or main development) branch of the original repository. Provide a clear title and a detailed description of your changes, referencing any relevant issues.
+
+## Contributor Acknowledgment
+
+To ensure proper credit is given, here are some guidelines:
+
+- **Acknowledgment**: Major contributors may be acknowledged in this section or other relevant parts of the documentation.
+- **Commit History**: All contributions will be visible in the commit history of the repository.
+- **Pull Request Description**: Please include your name or preferred alias in the pull request description if you'd like to be credited.
+- **Issues and Discussions**: Active participation in issue discussions, providing feedback, and helping others are also valuable forms of contribution and may be acknowledged.
 
 # License
 
