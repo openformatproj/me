@@ -7,3 +7,6 @@
 - [ ] **Unit Testing**: Add comprehensive unit tests for the digital domain parts and generation logic.
 - [ ] **Configuration Management**: Implement advanced configuration management and attribute propagation mechanisms.
     - *Example*: Propagate port type when a typed port is connected to a port without type, directly or indirectly.
+- [ ] **Standard Library**: Implement a set of standard digital parts (Mux, Demux, ALU, RAM, ROM).
+- [ ] **Bus Abstractions**: Create `Interface` subclasses for standard buses (e.g., AXI-Stream, Wishbone) to bundle signals.
+- [ ] **Waveform Viewer**: Add a utility to automatically launch GTKWave with the generated VCD file.
