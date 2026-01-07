@@ -27,7 +27,10 @@ class Register(Part):
 
 class Clock(Part):
     """
-    Docstring for Clock
+    A clock generator that toggles its output based on incoming time events.
+
+    It receives time events, updates the simulation time on 'time_port',
+    and toggles the 'clk' signal.
     """
     def __init__(self, identifier: str):
         ports = [
@@ -53,7 +56,7 @@ class Clock(Part):
 
 class Source(Part):
     """
-    Generates clock, reset, and input signals for the DUT.
+    Generates reset and input signals for the DUT.
     """
     def __init__(self, identifier: str):
         ports = [
