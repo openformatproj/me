@@ -93,9 +93,7 @@ class Sink(Part):
         super().__init__(identifier, ports=ports)
 
     def behavior(self):
-        if self.get_port('in_0').is_updated():
-            val = self.read('in_0')
-            self.trace_log(f"Sink -> Output received = {val.value}")
+        self.trace_log(f"Sink -> Receive = {self.read('in_0').value}")
 
 @vcd_monitor('logs/waveforms.vcd', {
     'clock.clk': 'clock.clk',
