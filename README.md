@@ -73,19 +73,19 @@ class Register(Part):
     """
     def __init__(self, identifier: str):
         ports = [
-            Port('clk', Port.IN, type=Logic),
-            Port('rst', Port.IN, type=Logic),
-            Port('in_0', Port.IN, type=Logic),
-            Port('out_0', Port.OUT, type=Logic)
+            Port('clk', Port.IN, type=Logic, init_value=Logic.U, semantic=Port.PERSISTENT),
+            Port('rst', Port.IN, type=Logic, init_value=Logic.U, semantic=Port.PERSISTENT),
+            Port('in_0', Port.IN, type=Logic, init_value=Logic.U, semantic=Port.PERSISTENT),
+            Port('out_0', Port.OUT, type=Logic, init_value=Logic.U, semantic=Port.PERSISTENT)
         ]
         super().__init__(identifier=identifier, ports=ports, scheduling_condition=all_updated, scheduling_args=('clk',))
 
     @rising_edge('clk')
     def behavior(self):
-        if self.get_port('rst').get() == Logic.ONE:
-            self.get_port('out_0').set(Logic.ZERO)
+        if self.read('rst') == Logic.ONE:
+            self.write('out_0', Logic.ZERO)
         else:
-            self.get_port('out_0').set(self.get_port('in_0').get())
+            self.write('out_0', self.read('in_0'))
 ```
 
 ##### Simulation
@@ -99,33 +99,33 @@ class Source(Part):
     """
     def __init__(self, identifier: str):
         ports = [
-            Port('clk', Port.OUT, type=Logic),
-            Port('rst', Port.OUT, type=Logic),
-            Port('in_0', Port.OUT, type=Logic),
-            Port('time', Port.IN)
+            Port('clk', Port.OUT, type=Logic, init_value=Logic.U, semantic=Port.PERSISTENT),
+            Port('rst', Port.OUT, type=Logic, init_value=Logic.U, semantic=Port.PERSISTENT),
+            Port('in_0', Port.OUT, type=Logic, init_value=Logic.U, semantic=Port.PERSISTENT),
+            Port('time', Port.IN) # Receives time events to advance simulation steps
         ]
         super().__init__(identifier, ports=ports)
         self.cycle = 0
 
     def behavior(self):
         if self.get_port('time').is_updated():
-            self.get_port('time').get()
+            self.read('time')
 
         # Toggle clock
         clk_val = Logic.ONE if self.cycle % 2 == 0 else Logic.ZERO
-        self.get_port('clk').set(clk_val)
+        self.write('clk', clk_val)
 
         # Assert reset for the first few cycles
         if self.cycle < 5:
-            self.get_port('rst').set(Logic.ONE)
+            self.write('rst', Logic.ONE)
         else:
-            self.get_port('rst').set(Logic.ZERO)
+            self.write('rst', Logic.ZERO)
 
         # Change input data periodically
         if self.cycle % 4 == 0:
-            self.get_port('in_0').set(Logic.ONE)
+            self.write('out_0', Logic.ONE)
         else:
-            self.get_port('in_0').set(Logic.ZERO)
+            self.write('out_0', Logic.ZERO)
 
         self.trace_log(f"Cycle {self.cycle} -> Driving clk={clk_val.value}, rst={self.get_port('rst').peek().value}, in_0={self.get_port('in_0').peek().value}")
         self.cycle += 1
@@ -135,12 +135,14 @@ class Sink(Part):
     Consumes the output from the DUT to prevent OverwriteError and verify behavior.
     """
     def __init__(self, identifier: str):
-        ports = [Port('in_0', Port.IN, type=Logic)]
+        ports = [
+            Port('in_0', Port.IN, type=Logic, init_value=Logic.U, semantic=Port.PERSISTENT)
+        ]
         super().__init__(identifier, ports=ports)
 
     def behavior(self):
         if self.get_port('in_0').is_updated():
-            val = self.get_port('in_0').get()
+            val = self.read('in_0')
             self.trace_log(f"Sink -> Output received = {val.value}")
 
 @vcd_monitor('logs/waveforms.vcd', {
