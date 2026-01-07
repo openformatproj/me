@@ -18,6 +18,17 @@ class Logic(Enum):
     H = 'H'  # Weak 1
     DONT_CARE = '-'  # Don't care
 
+    def __invert__(self):
+        if self == Logic.ZERO:
+            return Logic.ONE
+        if self == Logic.ONE:
+            return Logic.ZERO
+        if self == Logic.L:
+            return Logic.H
+        if self == Logic.H:
+            return Logic.L
+        return Logic.X
+
 def rising_edge(port_name):
     """
     Decorator to execute the behavior only on a rising edge of the specified port.
