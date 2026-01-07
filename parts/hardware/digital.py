@@ -29,10 +29,11 @@ class VCDMonitor(Part):
         for port_name in signals.keys():
             ports.append(Port(port_name, Port.IN))
             
-        # Schedule this part whenever the time port is updated
-        super().__init__(identifier, ports=ports, scheduling_condition=all_updated, scheduling_args=(time_port,))
+        # Schedule this part whenever any port is updated
+        super().__init__(identifier, ports=ports)
         
         self.file = open(filename, 'w')
+        self.last_timestamp = -1
         self.write_header()
 
     def write_header(self):
@@ -53,12 +54,18 @@ class VCDMonitor(Part):
         self.file.write("$end\n")
 
     def behavior(self):
-        # We are scheduled when time updates
-        if self.get_port(self.time_port_name).is_updated():
-            time_val = self.get_port(self.time_port_name).get()
+        t_port = self.get_port(self.time_port_name)
+        if t_port.is_updated():
+            time_val = t_port.get()
+        else:
+            time_val = t_port.peek()
+
+        if time_val is not None:
             timestamp = int(time_val * 1000) # Convert seconds to ms
-            self.file.write(f"#{timestamp}\n")
-            
+            if timestamp > self.last_timestamp:
+                self.file.write(f"#{timestamp}\n")
+                self.last_timestamp = timestamp
+
             for port_name, vcd_id in self.signal_vars.items():
                 port = self.get_port(port_name)
                 if port.is_updated():
