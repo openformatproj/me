@@ -22,10 +22,10 @@ Example 1:
 Python:
     @rising_edge('clk')
     def behavior(self):
-        if self.get_port('rst').get() == Logic.ONE:
-            self.get_port('q').set(Logic.ZERO)
+        if self.read('rst') == Logic.ONE:
+            self.write('q', Logic.ZERO)
         else:
-            self.get_port('q').set(self.get_port('d').get())
+            self.write('q', self.read('d'))
 
 VHDL:
     process(clk)
@@ -44,11 +44,11 @@ Python:
     self.internal_state = Logic.ZERO
     @rising_edge('clk')
     def behavior(self):
-        if self.get_port('rst').get() == Logic.ONE:
+        if self.read('rst') == Logic.ONE:
             self.internal_state = Logic.ZERO
         else:
-            self.internal_state = self.get_port('d').get()
-        self.get_port('q').set(self.internal_state)
+            self.internal_state = self.read('d')
+        self.write('q', self.internal_state)
 
 VHDL:
     process(clk)
