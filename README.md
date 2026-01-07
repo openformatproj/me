@@ -88,6 +88,10 @@ class Register(Part):
             self.write('out_0', self.read('in_0'))
 ```
 
+**Note on Persistence**: In the digital hardware domain, signals represent physical wires that hold their voltage level until driven to a new value. Therefore, ports are defined as `PERSISTENT`. This ensures that `read()` returns the last known value even if the signal wasn't updated in the current simulation step, mimicking the behavior of a hard-wire which is persistent by nature.
+
+**Note on Scheduling**: The argument `scheduling_condition=all_updated, scheduling_args=('clk',)` mimics the sensitivity list of a hardware process. It ensures the `behavior()` method is only executed when the `clk` signal changes. The `@rising_edge('clk')` decorator then further filters this execution to occur only on the rising edge, implementing standard synchronous logic.
+
 ##### Simulation
 
 The testbench wires a stimulus generator `Source` and a sink `Sink` to the DUT.
