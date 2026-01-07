@@ -1,6 +1,5 @@
 from ml.engine import Part, Port, EventQueue
 from ml.strategies import Execution
-from ml.parts import EventToDataSynchronizer
 from ml.strategies import all_updated
 from me.domains.hardware.digital import Logic, rising_edge, generate_code
 from me.parts.hardware.digital import vcd_monitor
@@ -26,28 +25,47 @@ class Register(Part):
         else:
             self.write('out_0', self.read('in_0'))
 
+class Clock(Part):
+    """
+    Docstring for Clock
+    """
+    def __init__(self, identifier: str):
+        ports = [
+            Port('clk', Port.OUT, type=Logic, init_value=Logic.U, semantic=Port.PERSISTENT),
+            Port('time_port', Port.OUT, type=float)
+        ]
+        event_queues = [EventQueue('time', EventQueue.IN, size=1)]
+        super().__init__(identifier=identifier, ports=ports, event_queues=event_queues)
+        self.state = Logic.U
+
+    def behavior(self):
+        event_queue = self.get_event_queue('time')
+        if not event_queue.is_empty():
+            t = event_queue.pop()
+            self.write('time_port', t)
+            if self.state == Logic.U:
+                state = Logic.ZERO
+            else:
+                state = ~self.state
+            self.write('clk', state)
+            self.trace_log(f"Clock@time {t} -> Drive clock {self.state} -> {state}")
+            self.state = state
+
 class Source(Part):
     """
     Generates clock, reset, and input signals for the DUT.
     """
     def __init__(self, identifier: str):
         ports = [
-            Port('clk', Port.OUT, type=Logic, init_value=Logic.U, semantic=Port.PERSISTENT),
+            Port('clk', Port.IN, type=Logic, init_value=Logic.U, semantic=Port.PERSISTENT),
             Port('rst', Port.OUT, type=Logic, init_value=Logic.U, semantic=Port.PERSISTENT),
-            Port('in_0', Port.OUT, type=Logic, init_value=Logic.U, semantic=Port.PERSISTENT),
-            Port('time', Port.IN) # Receives time events to advance simulation steps
+            Port('out_0', Port.OUT, type=Logic, init_value=Logic.U, semantic=Port.PERSISTENT),
         ]
-        super().__init__(identifier, ports=ports)
+        super().__init__(identifier, ports=ports, scheduling_condition=all_updated, scheduling_args=('clk',))
         self.cycle = 0
 
+    @rising_edge('clk')
     def behavior(self):
-        # Consume the time event to clear the port flag
-        if self.get_port('time').is_updated():
-            self.read('time')
-
-        # Toggle clock
-        clk_val = Logic.ONE if self.cycle % 2 == 0 else Logic.ZERO
-        self.write('clk', clk_val)
 
         # Assert reset for the first few cycles
         if self.cycle < 5:
@@ -61,7 +79,7 @@ class Source(Part):
         else:
             self.write('out_0', Logic.ZERO)
 
-        self.trace_log(f"Cycle {self.cycle} -> Driving clk={clk_val.value}, rst={self.get_port('rst').peek().value}, in_0={self.get_port('in_0').peek().value}")
+        self.trace_log(f"Source@cycle {self.cycle} -> Drive rst={self.get_port('rst').peek().value}, out_0={self.get_port('out_0').peek().value}")
         self.cycle += 1
 
 class Sink(Part):
@@ -80,17 +98,18 @@ class Sink(Part):
             self.trace_log(f"Sink -> Output received = {val.value}")
 
 @vcd_monitor('logs/waveforms.vcd', {
-    'clk': 'source.clk',
-    'rst': 'source.rst',
-    'in_0': 'source.in_0',
-    'out_0': 'dut.out_0'
-}, time_path='sync.timer_out')
+    'clock.clk': 'clock.clk',
+    'source.rst': 'source.rst',
+    'dut.in_0': 'source.out_0',
+    'dut.out_0': 'dut.out_0'
+}, time_path='clock.time_port')
 class Testbench(Part):
+
     def __init__(self, identifier: str):
         event_queues = [EventQueue('timer_q', EventQueue.IN, size=1)]
         
         parts = {
-            'sync': EventToDataSynchronizer('sync', 'timer_in', 'timer_out', float),
+            'clock': Clock('clock'),
             'source': Source('source'),
             'dut': Register('dut'),
             'sink': Sink('sink')
@@ -98,16 +117,16 @@ class Testbench(Part):
         
         super().__init__(identifier, parts=parts, event_queues=event_queues, execution_strategy=Execution.sequential())
         
-        # Wire the Timer event to the Synchronizer
-        self.wire_event('timer_q', 'sync.timer_in')
+        # Wire the Timer event to the Clock
+        self.wire_event('timer_q', 'clock.time')
         
-        # Wire Synchronizer time to Source
-        self.wire('sync.timer_out', 'source.time')
+        # Wire Clock to Source and DUT
+        self.wire('clock.clk', 'source.clk')
+        self.wire('clock.clk', 'dut.clk')
         
         # Wire Source signals to DUT
-        self.wire('source.clk', 'dut.clk')
         self.wire('source.rst', 'dut.rst')
-        self.wire('source.in_0', 'dut.in_0')
+        self.wire('source.out_0', 'dut.in_0')
         
         # Wire DUT output to Sink
         self.wire('dut.out_0', 'sink.in_0')
@@ -228,7 +247,8 @@ def simulate():
     # Setup Simulation
     tb = Testbench('tb')
     tb.init()
-    timer = Timer('timer', interval_seconds=0.1, duration_seconds=2.0, on_full=OnFullBehavior.DROP)
+    # The timer drives the clock toggling. interval_seconds=0.1 -> 100 ms, clock period: 200 ms
+    timer = Timer('timer', interval_seconds=0.1, duration_seconds=3.0, on_full=OnFullBehavior.DROP)
     
     tb.connect_event_source(timer, 'timer_q')
     
