@@ -1,8 +1,36 @@
-from ml.engine import Part, Port
-from ml.strategies import all_updated
+from ml.engine import Part, Port, EventQueue
 from me.domains.hardware.digital import Logic
 from functools import wraps
 import datetime
+
+class Clock(Part):
+    """
+    A clock generator that toggles its output based on incoming time events.
+
+    It receives time events, updates the simulation time on 'time_port',
+    and toggles the 'clk' signal.
+    """
+    def __init__(self, identifier: str):
+        ports = [
+            Port('clk', Port.OUT, type=Logic, init_value=Logic.U, semantic=Port.PERSISTENT),
+            Port('time_port', Port.OUT, type=float)
+        ]
+        event_queues = [EventQueue('time', EventQueue.IN, size=1)]
+        super().__init__(identifier=identifier, ports=ports, event_queues=event_queues)
+        self.state = Logic.U
+
+    def behavior(self):
+        event_queue = self.get_event_queue('time')
+        if not event_queue.is_empty():
+            t = event_queue.pop()
+            self.write('time_port', t)
+            if self.state == Logic.U:
+                state = Logic.ZERO
+            else:
+                state = ~self.state
+            self.write('clk', state)
+            self.trace_log(f"Clock@time {t} -> Drive clock {self.state} -> {state}")
+            self.state = state
 
 class VCDMonitor(Part):
     """
