@@ -103,7 +103,7 @@ class DiagramSerializer:
             raise TypeError(conf.UI.Log.SERIALIZATION_ONLY_STRUCTURAL)
 
         part_data = {
-            conf.Key.IDENTIFIER_KEY: part.get_identifier(),
+            conf.Key.IDENTIFIER_KEY: part.get_full_identifier(),
             conf.Key.CLASS_KEY: part.__class__.__name__,
             conf.Key.PORTS_KEY: [],
             conf.Key.INNER_PARTS_KEY: [],
@@ -117,7 +117,7 @@ class DiagramSerializer:
         # Serialize all inner parts and their respective ports
         for inner_part in part.get_parts():
             inner_part_data = {
-                conf.Key.IDENTIFIER_KEY: inner_part.get_identifier(),
+                conf.Key.IDENTIFIER_KEY: inner_part.get_full_identifier(),
                 conf.Key.CLASS_KEY: inner_part.__class__.__name__,
                 conf.Key.PORTS_KEY: [{conf.Key.NAME_KEY: p.get_identifier(), conf.Key.DIRECTION_KEY: p.get_direction()} for p in inner_part.get_ports(MlPort.IN) + inner_part.get_ports(MlPort.OUT)]
             }
@@ -127,9 +127,12 @@ class DiagramSerializer:
         for interface in part.get_interfaces():
             source_port = interface.get_master_port()
             dest_port = interface.get_slave_port()
+            src_part_id = source_port.get_parent().get_full_identifier()
+            dst_part_id = dest_port.get_parent().get_full_identifier()
+
             part_data[conf.Key.CONNECTIONS_KEY].append({
-                conf.Key.SOURCE_KEY: {conf.Key.PART_ID_KEY: source_port.get_parent().get_identifier(), conf.Key.PORT_ID_KEY: source_port.get_identifier()},
-                conf.Key.DESTINATION_KEY: {conf.Key.PART_ID_KEY: dest_port.get_parent().get_identifier(), conf.Key.PORT_ID_KEY: dest_port.get_identifier()}
+                conf.Key.SOURCE_KEY: {conf.Key.PART_ID_KEY: src_part_id, conf.Key.PORT_ID_KEY: source_port.get_identifier()},
+                conf.Key.DESTINATION_KEY: {conf.Key.PART_ID_KEY: dst_part_id, conf.Key.PORT_ID_KEY: dest_port.get_identifier()}
             })
 
         return json.dumps({conf.Key.FORMAT_VERSION_KEY: conf.UI.Serializer.FORMAT_VERSION, conf.Key.PART_KEY: part_data}, indent=2)
@@ -177,11 +180,16 @@ class DiagramSerializer:
         for inner_part_info in part_data.get(conf.Key.INNER_PARTS_KEY, []):
             part_id = inner_part_info[conf.Key.IDENTIFIER_KEY]
             part_class = inner_part_info[conf.Key.CLASS_KEY]
-            block_name = conf.UI.Serializer.BLOCK_NAME_FORMAT.format(part_id=part_id, part_class=part_class)
+            
+            # Derive local ID for display from the full ID
+            local_id = part_id.replace(f"{top_level_part_id}.", "")
+            
+            block_name = conf.UI.Serializer.BLOCK_NAME_FORMAT.format(part_id=local_id, part_class=part_class)
             input_pins = [p[conf.Key.NAME_KEY] for p in inner_part_info.get(conf.Key.PORTS_KEY, []) if p[conf.Key.DIRECTION_KEY] == conf.UI.PIN_TYPE_INPUT_LOWER]
             output_pins = [p[conf.Key.NAME_KEY] for p in inner_part_info.get(conf.Key.PORTS_KEY, []) if p[conf.Key.DIRECTION_KEY] == conf.UI.PIN_TYPE_OUTPUT_LOWER]
             block = main_window.create_block(block_name, input_pins=input_pins, output_pins=output_pins)
-            if block: blocks[part_id] = block
+            if block:
+                blocks[part_id] = block
 
         # 3. Create Wires from the connections list.
         for conn_info in part_data.get(conf.Key.CONNECTIONS_KEY, []):
