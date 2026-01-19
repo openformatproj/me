@@ -110,16 +110,35 @@ class DiagramSerializer:
             conf.Key.CONNECTIONS_KEY: []
         }
 
+        def _get_type_name(port):
+            t = port.get_type() if hasattr(port, 'get_type') else None
+            if t is int: return 'int'
+            if hasattr(t, '__name__'): return t.__name__
+            return None
+
         # Serialize the top-level part's own ports
         for port in part.get_ports(MlPort.IN) + part.get_ports(MlPort.OUT):
-            part_data[conf.Key.PORTS_KEY].append({conf.Key.NAME_KEY: port.get_identifier(), conf.Key.DIRECTION_KEY: port.get_direction()})
+            p_type = _get_type_name(port)
+            part_data[conf.Key.PORTS_KEY].append({
+                conf.Key.NAME_KEY: port.get_identifier(),
+                conf.Key.DIRECTION_KEY: port.get_direction(),
+                "type_name": p_type
+            })
 
         # Serialize all inner parts and their respective ports
         for inner_part in part.get_parts():
+            inner_ports = []
+            for p in inner_part.get_ports(MlPort.IN) + inner_part.get_ports(MlPort.OUT):
+                p_type = _get_type_name(p)
+                inner_ports.append({
+                    conf.Key.NAME_KEY: p.get_identifier(),
+                    conf.Key.DIRECTION_KEY: p.get_direction(),
+                    "type_name": p_type
+                })
             inner_part_data = {
                 conf.Key.IDENTIFIER_KEY: inner_part.get_full_identifier(),
                 conf.Key.CLASS_KEY: inner_part.__class__.__name__,
-                conf.Key.PORTS_KEY: [{conf.Key.NAME_KEY: p.get_identifier(), conf.Key.DIRECTION_KEY: p.get_direction()} for p in inner_part.get_ports(MlPort.IN) + inner_part.get_ports(MlPort.OUT)]
+                conf.Key.PORTS_KEY: inner_ports
             }
             part_data[conf.Key.INNER_PARTS_KEY].append(inner_part_data)
 

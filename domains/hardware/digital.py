@@ -5,6 +5,7 @@ import os
 from functools import wraps
 from ml.engine import Part, Port
 from jinja2 import Template
+import json
 
 class Logic(Enum):
     """A type for HDL standard logic."""
@@ -47,6 +48,128 @@ def rising_edge(port_name):
         return wrapper
     return decorator
 
+def _structure_to_vhdl(structure_json: str) -> str:
+    """
+    Converts a JSON topology into a VHDL architecture body.
+    """
+    data = json.loads(structure_json)
+    part_data = data['part']
+    top_id = part_data['identifier']
+    
+    # 0. Build Port Type Map: (part_id, port_name) -> type_name
+    port_type_map = {}
+    for p in part_data['ports']:
+        port_type_map[(top_id, p['name'])] = p.get('type_name', 'Logic')
+    
+    for inner in part_data['inner_parts']:
+        for p in inner['ports']:
+            port_type_map[(inner['identifier'], p['name'])] = p.get('type_name', 'Logic')
+
+    # 1. Analyze Components to generate unique declarations
+    # Map (class_name, frozenset(ports)) -> component_name
+    comp_signatures = {}
+    # Map part_id -> component_name
+    part_comp_map = {}
+    
+    # Helper to create a signature for a component based on its ports
+    def get_port_signature(ports_list):
+        return frozenset((p['name'], p['direction'], p.get('type_name', 'Logic')) for p in ports_list)
+
+    top_signature = get_port_signature(part_data['ports'])
+
+    for inner in part_data['inner_parts']:
+        p_set = get_port_signature(inner['ports'])
+        sig = (inner['class'], p_set)
+        
+        if sig not in comp_signatures:
+            # Determine a unique component name
+            base_name = inner['class']
+            # If it conflicts with the top-level entity (same class, different ports), rename it
+            if base_name == part_data['class'] and p_set != top_signature:
+                c_name = f"{base_name}_{len(comp_signatures)}"
+            else:
+                # Check for existing components with the same class but different ports
+                existing = [k for k in comp_signatures if k[0] == base_name]
+                if existing:
+                    c_name = f"{base_name}_{len(existing)}"
+                else:
+                    c_name = base_name
+            comp_signatures[sig] = c_name
+        
+        part_comp_map[inner['identifier']] = comp_signatures[sig]
+
+    # 2. Analyze Signals (Nets)
+    signals = {} # name -> type
+    # Map (part_id, port_name) -> signal_name
+    port_signal_map = {}
+    
+    # Initialize map with top-level ports (no signal declaration needed)
+    for p in part_data['ports']:
+        port_signal_map[(top_id, p['name'])] = p['name']
+        
+    for conn in part_data['connections']:
+        src = conn['source']
+        dst = conn['destination']
+        
+        src_key = (src['part_id'], src['port_id'])
+        dst_key = (dst['part_id'], dst['port_id'])
+        
+        # Check if either side is already assigned to a signal/port
+        sig_name = port_signal_map.get(src_key) or port_signal_map.get(dst_key)
+        
+        if not sig_name:
+            # Create a new internal signal
+            # Use the source part's local name to make it readable
+            src_part_local = src['part_id'].split('.')[-1]
+            sig_name = f"{src_part_local}_{src['port_id']}"
+            
+            src_type = port_type_map.get((src['part_id'], src['port_id']), 'Logic')
+            signals[sig_name] = "INTEGER" if src_type == 'int' else "STD_LOGIC"
+        
+        port_signal_map[src_key] = sig_name
+        port_signal_map[dst_key] = sig_name
+
+    # 3. Generate VHDL Code
+    lines = []
+    
+    # Component Declarations
+    for (cls_name, p_set), comp_name in comp_signatures.items():
+        lines.append(f"    component {comp_name} is")
+        lines.append("        port (")
+        # Recover port order from the first instance found matching this signature
+        example_inner = next(i for i in part_data['inner_parts'] if part_comp_map[i['identifier']] == comp_name)
+        p_list = example_inner['ports']
+        for i, p in enumerate(p_list):
+            p_dir = "in" if p['direction'] == "input" else "out"
+            p_type_name = p.get('type_name', 'Logic')
+            vhdl_type = "INTEGER" if p_type_name == 'int' else "STD_LOGIC"
+            sep = ";" if i < len(p_list) - 1 else ""
+            lines.append(f"            {p['name']} : {p_dir} {vhdl_type}{sep}")
+        lines.append("        );")
+        lines.append(f"    end component {comp_name};\n")
+
+    # Signal Declarations
+    for s_name, s_type in sorted(signals.items()):
+        lines.append(f"    signal {s_name} : {s_type};")
+    
+    lines.append("\nbegin\n")
+    
+    # Component Instantiations
+    for inner in part_data['inner_parts']:
+        comp_name = part_comp_map[inner['identifier']]
+        inst_name = inner['identifier'].split('.')[-1] + "_inst"
+        lines.append(f"    {inst_name} : {comp_name}")
+        lines.append("        port map (")
+        p_list = inner['ports']
+        for i, p in enumerate(p_list):
+            # Default to 'open' if unconnected
+            sig = port_signal_map.get((inner['identifier'], p['name']), 'open')
+            sep = "," if i < len(p_list) - 1 else ""
+            lines.append(f"            {p['name']} => {sig}{sep}")
+        lines.append("        );\n")
+        
+    return "\n".join(lines)
+
 def _generate_code(part: Part, language: str = "VHDL", entity_name: Optional[str] = None, architecture_name: str = "rtl", llm_client: Optional[Callable[[str], str]] = None) -> str:
     """
     Generates HDL code for a given Part.
@@ -73,10 +196,13 @@ def _generate_code(part: Part, language: str = "VHDL", entity_name: Optional[str
     
     ports = []
     for p in part.get_ports(Port.IN) + part.get_ports(Port.OUT):
+        p_type = p.get_type() if hasattr(p, 'get_type') else None
+        is_int = p_type is int or (hasattr(p_type, '__name__') and p_type.__name__ == 'int')
+        vhdl_type = "INTEGER" if is_int else "STD_LOGIC"
         ports.append({
             "name": p.get_identifier(),
             "direction": "in" if p.get_direction() == Port.IN else "out",
-            "type": "STD_LOGIC"
+            "type": vhdl_type
         })
 
     base_path = os.path.dirname(__file__)
@@ -86,6 +212,22 @@ def _generate_code(part: Part, language: str = "VHDL", entity_name: Optional[str
     
     entity_str = entity_template.render(entity_name=entity_name, ports=ports)
     
+    # Check if the part is structural (has inner parts)
+    if not part.get_description() == Part.BEHAVIORAL:
+        try:
+            from me.serializer import DiagramSerializer
+            serializer = DiagramSerializer()
+            structure_json = serializer.export_part_to_json(part)
+            architecture_body_content = _structure_to_vhdl(structure_json)
+            architecture_body = (
+                f"\narchitecture {architecture_name} of {entity_name} is\n"
+                f"{architecture_body_content}\n"
+                f"end {architecture_name};"
+            )
+            return entity_str + "\n" + architecture_body
+        except Exception as e:
+            raise Exception(f"Error generating structural VHDL: {e}")
+
     if llm_client:
         try:
             behavior_code = inspect.getsource(part.behavior)
@@ -128,7 +270,7 @@ def generate_code(part, language, entity_name, architecture_name, llm):
     import os
     import sys
     
-    if llm:
+    if llm and part.get_description() == Part.BEHAVIORAL:
 
         try:
             from google import genai
