@@ -283,7 +283,7 @@ def _generate_code(part: Part, language: str = "VHDL", entity_name: Optional[str
     
     return entity_str + "\n" + architecture_body, None
 
-def generate_code(part, language, entity_name, architecture_name, llm, generate_build_script=False):
+def generate_code(part, language, output_dir, entity_name, architecture_name, llm, generate_build_script=False):
     import os
     import sys
     
@@ -350,7 +350,6 @@ def generate_code(part, language, entity_name, architecture_name, llm, generate_
     except Exception as e:
         raise Exception(f"Code generation failed: {e}")
 
-    output_dir = "gen"
     if not os.path.exists(output_dir):
         os.makedirs(output_dir)
 
