@@ -379,7 +379,7 @@ def generate_code(part, language, output_dir, entity_name, architecture_name, ll
             if child_id in component_map:
                 child_entity_name = component_map[child_id]
                 if child_entity_name not in generated_entities:
-                    generate_code(child, output_dir, language, child_entity_name, "rtl", llm)
+                    generate_code(child, language, output_dir, child_entity_name, "rtl", llm)
                     generated_entities.add(child_entity_name)
 
     if generate_build_script:
