@@ -7,6 +7,7 @@ from ml.engine import Part, Port
 from jinja2 import Template
 import json
 import hashlib
+from .conf import VHDL_RESERVED_WORDS
 
 class Logic(Enum):
     """A type for HDL standard logic."""
@@ -345,8 +346,20 @@ def generate_code(part, language, output_dir, entity_name, architecture_name, ll
 
         llm_client = None
 
+    entity_name_safe = entity_name
+    if entity_name.lower() in VHDL_RESERVED_WORDS:
+        s = entity_name.encode('utf-8')
+        h = hashlib.md5(s).hexdigest()[:6]
+        entity_name_safe = f"{entity_name}_{h}"
+
+    architecture_name_safe = architecture_name
+    if architecture_name.lower() in VHDL_RESERVED_WORDS:
+        s = architecture_name.encode('utf-8')
+        h = hashlib.md5(s).hexdigest()[:6]
+        architecture_name_safe = f"{architecture_name}_{h}"
+
     try:
-        code, component_map = _generate_code(part, language=language, entity_name=entity_name_safe, architecture_name=architecture_name, llm_client=llm_client)
+        code, component_map = _generate_code(part, language=language, entity_name=entity_name_safe, architecture_name=architecture_name_safe, llm_client=llm_client)
     except Exception as e:
         raise Exception(f"Code generation failed: {e}")
 
