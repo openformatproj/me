@@ -1,5 +1,6 @@
-Generate the VHDL process block based on the following Python behavior:
-{{ behavior_code }}
+You are an expert VHDL hardware designer. Your task is to translate the following Python behavioral code into a synthesizable VHDL process.
+
+{{ entity_context }}
 
 Guidelines:
 - **Latch Prevention**: Ensure that all signals are assigned a value in every branch of conditional statements to avoid inferring latches, unless a latch is explicitly intended with a comment.
@@ -63,3 +64,8 @@ VHDL:
             q <= internal_state;
         end if;
     end process;
+
+Python Behavior:
+{{ behavior_code }}
+
+Generate the VHDL `process` block now.

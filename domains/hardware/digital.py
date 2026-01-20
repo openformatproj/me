@@ -234,11 +234,32 @@ def _generate_code(part: Part, language: str = "VHDL", entity_name: Optional[str
         except Exception:
             behavior_code = "-- Could not retrieve source code."
             
+        attributes = {k: v for k, v in part.__dict__.items() if isinstance(v, (int, float, str, bool)) and not k.startswith('_')}
+
+        # Prepend attributes as assignments to the behavior code
+        # This helps the LLM resolve self.variable references to concrete values
+        attr_header = []
+        for k, v in attributes.items():
+            val_str = f"'{v}'" if isinstance(v, str) else str(v)
+            attr_header.append(f"self.{k} = {val_str}")
+        if attr_header:
+            behavior_code = "\n".join(attr_header) + "\n\n" + behavior_code
+
+        context_lines = ["Entity Context:", "- **Ports**:"]
+        for p in ports:
+            context_lines.append(f"  - {p['name']}: {p['direction']} {p['type']}")
+        if attributes:
+            context_lines.append("- **Configuration**:")
+            for k, v in attributes.items():
+                context_lines.append(f"  - {k} = {v}")
+        entity_context = "\n".join(context_lines)
+
         with open(os.path.join(base_path, 'VHDL', 'generation_prompt.txt'), 'r') as f:
             prompt_template_content = f.read()
         prompt_template = Template(prompt_template_content)
         prompt = prompt_template.render(
-            behavior_code=behavior_code
+            behavior_code=behavior_code,
+            entity_context=entity_context
         )
         generated_behavior = llm_client(prompt)
         indented_behavior = "\n".join(["    " + line for line in generated_behavior.splitlines()])
