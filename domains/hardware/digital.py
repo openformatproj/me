@@ -1,11 +1,12 @@
 from enum import Enum
-from typing import Optional, Callable
+from typing import Optional, Callable, Tuple, Dict
 import inspect
 import os
 from functools import wraps
 from ml.engine import Part, Port
 from jinja2 import Template
 import json
+import hashlib
 
 class Logic(Enum):
     """A type for HDL standard logic."""
@@ -48,9 +49,10 @@ def rising_edge(port_name):
         return wrapper
     return decorator
 
-def _structure_to_vhdl(structure_json: str) -> str:
+def _structure_to_vhdl(structure_json: str) -> Tuple[str, Dict[str, str]]:
     """
     Converts a JSON topology into a VHDL architecture body.
+    Returns the VHDL code and a mapping of {part_identifier: component_name}.
     """
     data = json.loads(structure_json)
     part_data = data['part']
@@ -75,25 +77,19 @@ def _structure_to_vhdl(structure_json: str) -> str:
     def get_port_signature(ports_list):
         return frozenset((p['name'], p['direction'], p.get('type_name', 'Logic')) for p in ports_list)
 
-    top_signature = get_port_signature(part_data['ports'])
+    def get_component_name(class_name, port_signature):
+        # Create a deterministic hash of the signature to ensure unique names for different configurations
+        sorted_items = sorted(list(port_signature))
+        s = f"{class_name}:{str(sorted_items)}".encode('utf-8')
+        h = hashlib.md5(s).hexdigest()[:6]
+        return f"{class_name}_{h}"
 
     for inner in part_data['inner_parts']:
         p_set = get_port_signature(inner['ports'])
         sig = (inner['class'], p_set)
         
         if sig not in comp_signatures:
-            # Determine a unique component name
-            base_name = inner['class']
-            # If it conflicts with the top-level entity (same class, different ports), rename it
-            if base_name == part_data['class'] and p_set != top_signature:
-                c_name = f"{base_name}_{len(comp_signatures)}"
-            else:
-                # Check for existing components with the same class but different ports
-                existing = [k for k in comp_signatures if k[0] == base_name]
-                if existing:
-                    c_name = f"{base_name}_{len(existing)}"
-                else:
-                    c_name = base_name
+            c_name = get_component_name(inner['class'], p_set)
             comp_signatures[sig] = c_name
         
         part_comp_map[inner['identifier']] = comp_signatures[sig]
@@ -168,9 +164,9 @@ def _structure_to_vhdl(structure_json: str) -> str:
             lines.append(f"            {p['name']} => {sig}{sep}")
         lines.append("        );\n")
         
-    return "\n".join(lines)
+    return "\n".join(lines), part_comp_map
 
-def _generate_code(part: Part, language: str = "VHDL", entity_name: Optional[str] = None, architecture_name: str = "rtl", llm_client: Optional[Callable[[str], str]] = None) -> str:
+def _generate_code(part: Part, language: str = "VHDL", entity_name: Optional[str] = None, architecture_name: str = "rtl", llm_client: Optional[Callable[[str], str]] = None) -> Tuple[str, Optional[Dict[str, str]]]:
     """
     Generates HDL code for a given Part.
 
@@ -182,7 +178,7 @@ def _generate_code(part: Part, language: str = "VHDL", entity_name: Optional[str
         llm_client: An optional function that accepts a prompt string and returns the generated architecture.
 
     Returns:
-        str: The generated HDL code.
+        Tuple[str, Optional[Dict[str, str]]]: The generated HDL code and a map of inner parts to component names (if structural).
 
     Raises:
         ValueError: If the language is not supported.
@@ -218,13 +214,13 @@ def _generate_code(part: Part, language: str = "VHDL", entity_name: Optional[str
             from me.serializer import DiagramSerializer
             serializer = DiagramSerializer()
             structure_json = serializer.export_part_to_json(part)
-            architecture_body_content = _structure_to_vhdl(structure_json)
+            architecture_body_content, component_map = _structure_to_vhdl(structure_json)
             architecture_body = (
                 f"\narchitecture {architecture_name} of {entity_name} is\n"
                 f"{architecture_body_content}\n"
                 f"end {architecture_name};"
             )
-            return entity_str + "\n" + architecture_body
+            return entity_str + "\n" + architecture_body, component_map
         except Exception as e:
             raise Exception(f"Error generating structural VHDL: {e}")
 
@@ -285,9 +281,9 @@ def _generate_code(part: Part, language: str = "VHDL", entity_name: Optional[str
             behavior_lines=behavior_lines
         )
     
-    return entity_str + "\n" + architecture_body
+    return entity_str + "\n" + architecture_body, None
 
-def generate_code(part, language, entity_name, architecture_name, llm):
+def generate_code(part, language, entity_name, architecture_name, llm, generate_build_script=False):
     import os
     import sys
     
@@ -317,6 +313,13 @@ def generate_code(part, language, entity_name, architecture_name, llm):
                     response = client.models.generate_content(model=model, contents=prompt)
                     # Clean up Markdown code fences if the model returns them
                     text = response.text.replace("```vhdl", "").replace("```", "").strip()
+                    
+                    # Robust extraction of the process block to ignore potential entity wrappers
+                    import re
+                    match = re.search(r"(process.*?end process;)", text, re.IGNORECASE | re.DOTALL)
+                    if match:
+                        text = match.group(1)
+
                     return f"-- Generated by {model}\n{text}"
                 except errors.ClientError as e:
                     if e.code == 429:
@@ -343,7 +346,7 @@ def generate_code(part, language, entity_name, architecture_name, llm):
         llm_client = None
 
     try:
-        code = _generate_code(part, language=language, entity_name=entity_name, architecture_name=architecture_name, llm_client=llm_client)
+        code, component_map = _generate_code(part, language=language, entity_name=entity_name_safe, architecture_name=architecture_name, llm_client=llm_client)
     except Exception as e:
         raise Exception(f"Code generation failed: {e}")
 
@@ -355,3 +358,27 @@ def generate_code(part, language, entity_name, architecture_name, llm):
     with open(filename, "w") as f:
         f.write(code)
     print(f"Code generated in {filename}")
+
+    # Recursively generate code for inner parts
+    if component_map:
+        generated_entities = set()
+        for child in part.get_parts():
+            child_id = child.get_full_identifier()
+            if child_id in component_map:
+                child_entity_name = component_map[child_id]
+                if child_entity_name not in generated_entities:
+                    generate_code(child, output_dir, language, child_entity_name, "rtl", llm)
+                    generated_entities.add(child_entity_name)
+
+    if generate_build_script:
+        base_path = os.path.dirname(__file__)
+        with open(os.path.join(base_path, 'VHDL', 'compile.sh'), 'r') as f:
+            script_template_content = f.read()
+        script_template = Template(script_template_content)
+        script_content = script_template.render(entity_name=entity_name_safe)
+        
+        script_filename = os.path.join(output_dir, "compile.sh")
+        with open(script_filename, "w") as f:
+            f.write(script_content)
+        os.chmod(script_filename, 0o755)
+        print(f"Build script generated in {script_filename}")
