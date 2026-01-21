@@ -167,7 +167,7 @@ def _structure_to_vhdl(structure_json: str) -> Tuple[str, Dict[str, str]]:
         
     return "\n".join(lines), part_comp_map
 
-def generate_code(part: Part, language: str, output_dir: str, entity_name: Optional[str] = None, architecture_name: str = "rtl", llm: bool = False, generate_build_script: bool = False):
+def generate_code(part: Part, language: str, output_dir: str, entity_name: Optional[str] = None, architecture_name: str = "rtl", llm: bool = False, generate_build_script: bool = False, generate_purge_script: bool = False):
     """
     Generates HDL code for a given Part and writes it to files.
 
@@ -179,6 +179,7 @@ def generate_code(part: Part, language: str, output_dir: str, entity_name: Optio
         architecture_name: The name of the architecture (default: "rtl").
         llm: Whether to use an LLM for behavioral code generation.
         generate_build_script: Whether to generate a compilation script.
+        generate_purge_script: Whether to generate a cache purge script.
 
     Raises:
         ValueError: If the language is not supported.
@@ -332,7 +333,27 @@ def generate_code(part: Part, language: str, output_dir: str, entity_name: Optio
                 behavior_code=behavior_code,
                 entity_context=entity_context
             )
-            generated_behavior = llm_client(prompt)
+
+            # --- Caching Logic ---
+            cache_dir = os.path.join(output_dir, ".cache")
+            if not os.path.exists(cache_dir):
+                os.makedirs(cache_dir)
+
+            # Create a hash of the prompt to use as a cache key
+            prompt_hash = hashlib.md5(prompt.encode('utf-8')).hexdigest()
+            cache_file = os.path.join(cache_dir, f"{prompt_hash}.vhd")
+
+            if os.path.exists(cache_file):
+                print(f"Cache hit for {entity_name}. Loading from cache.")
+                with open(cache_file, 'r') as f:
+                    generated_behavior = f.read()
+            else:
+                print(f"Cache miss for {entity_name}. Generating with LLM...")
+                generated_behavior = llm_client(prompt)
+                with open(cache_file, 'w') as f:
+                    f.write(generated_behavior)
+            # --- End Caching Logic ---
+
             indented_behavior = "\n".join(["    " + line for line in generated_behavior.splitlines()])
             architecture_body = (
                 f"\narchitecture {architecture_name} of {entity_name} is\n"
@@ -392,3 +413,16 @@ def generate_code(part: Part, language: str, output_dir: str, entity_name: Optio
             f.write(script_content)
         os.chmod(script_filename, 0o755)
         print(f"Build script generated in {script_filename}")
+
+    if generate_purge_script:
+        base_path = os.path.dirname(__file__)
+        with open(os.path.join(base_path, 'VHDL', 'purge_cache.sh'), 'r') as f:
+            script_template_content = f.read()
+        script_template = Template(script_template_content)
+        script_content = script_template.render(output_dir=output_dir)
+        
+        script_filename = os.path.join(output_dir, "purge_cache.sh")
+        with open(script_filename, "w") as f:
+            f.write(script_content)
+        os.chmod(script_filename, 0o755)
+        print(f"Purge script generated in {script_filename}")
