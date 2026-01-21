@@ -167,127 +167,32 @@ def _structure_to_vhdl(structure_json: str) -> Tuple[str, Dict[str, str]]:
         
     return "\n".join(lines), part_comp_map
 
-def _generate_code(part: Part, language: str = "VHDL", entity_name: Optional[str] = None, architecture_name: str = "rtl", llm_client: Optional[Callable[[str], str]] = None) -> Tuple[str, Optional[Dict[str, str]]]:
+def generate_code(part: Part, language: str, output_dir: str, entity_name: Optional[str] = None, architecture_name: str = "rtl", llm: bool = False, generate_build_script: bool = False):
     """
-    Generates HDL code for a given Part.
+    Generates HDL code for a given Part and writes it to files.
 
     Args:
         part: The Part instance to generate code for.
         language: The target language (default: "VHDL").
+        output_dir: Directory to save generated files.
         entity_name: The name of the entity/module. If None, defaults to the part's class name in lowercase.
         architecture_name: The name of the architecture (default: "rtl").
-        llm_client: An optional function that accepts a prompt string and returns the generated architecture.
-
-    Returns:
-        Tuple[str, Optional[Dict[str, str]]]: The generated HDL code and a map of inner parts to component names (if structural).
+        llm: Whether to use an LLM for behavioral code generation.
+        generate_build_script: Whether to generate a compilation script.
 
     Raises:
         ValueError: If the language is not supported.
-        Exception: If the `llm_client` raises an error.
+        Exception: If code generation fails.
     """
+    import os
+    import sys
+    
     if language.upper() != "VHDL":
         raise ValueError(f"Unsupported language: {language}")
 
     if entity_name is None:
         entity_name = type(part).__name__.lower()
-    
-    ports = []
-    for p in part.get_ports(Port.IN) + part.get_ports(Port.OUT):
-        p_type = p.get_type() if hasattr(p, 'get_type') else None
-        is_int = p_type is int or (hasattr(p_type, '__name__') and p_type.__name__ == 'int')
-        vhdl_type = "INTEGER" if is_int else "STD_LOGIC"
-        ports.append({
-            "name": p.get_identifier(),
-            "direction": "in" if p.get_direction() == Port.IN else "out",
-            "type": vhdl_type
-        })
 
-    base_path = os.path.dirname(__file__)
-    with open(os.path.join(base_path, 'VHDL', 'entity.vhd'), 'r') as f:
-        entity_template_content = f.read()
-    entity_template = Template(entity_template_content)
-    
-    entity_str = entity_template.render(entity_name=entity_name, ports=ports)
-    
-    # Check if the part is structural (has inner parts)
-    if not part.get_description() == Part.BEHAVIORAL:
-        try:
-            from me.serializer import DiagramSerializer
-            serializer = DiagramSerializer()
-            structure_json = serializer.export_part_to_json(part)
-            architecture_body_content, component_map = _structure_to_vhdl(structure_json)
-            architecture_body = (
-                f"\narchitecture {architecture_name} of {entity_name} is\n"
-                f"{architecture_body_content}\n"
-                f"end {architecture_name};"
-            )
-            return entity_str + "\n" + architecture_body, component_map
-        except Exception as e:
-            raise Exception(f"Error generating structural VHDL: {e}")
-
-    if llm_client:
-        try:
-            behavior_code = inspect.getsource(part.behavior)
-        except Exception:
-            behavior_code = "-- Could not retrieve source code."
-            
-        attributes = {k: v for k, v in part.__dict__.items() if isinstance(v, (int, float, str, bool)) and not k.startswith('_')}
-
-        # Prepend attributes as assignments to the behavior code
-        # This helps the LLM resolve self.variable references to concrete values
-        attr_header = []
-        for k, v in attributes.items():
-            val_str = f"'{v}'" if isinstance(v, str) else str(v)
-            attr_header.append(f"self.{k} = {val_str}")
-        if attr_header:
-            behavior_code = "\n".join(attr_header) + "\n\n" + behavior_code
-
-        context_lines = ["Entity Context:", "- **Ports**:"]
-        for p in ports:
-            context_lines.append(f"  - {p['name']}: {p['direction']} {p['type']}")
-        if attributes:
-            context_lines.append("- **Configuration**:")
-            for k, v in attributes.items():
-                context_lines.append(f"  - {k} = {v}")
-        entity_context = "\n".join(context_lines)
-
-        with open(os.path.join(base_path, 'VHDL', 'generation_prompt.txt'), 'r') as f:
-            prompt_template_content = f.read()
-        prompt_template = Template(prompt_template_content)
-        prompt = prompt_template.render(
-            behavior_code=behavior_code,
-            entity_context=entity_context
-        )
-        generated_behavior = llm_client(prompt)
-        indented_behavior = "\n".join(["    " + line for line in generated_behavior.splitlines()])
-        architecture_body = (
-            f"\narchitecture {architecture_name} of {entity_name} is\n"
-            f"begin\n\n"
-            f"{indented_behavior}\n\n"
-            f"end {architecture_name};"
-        )
-    else:
-        try:
-            behavior_code = inspect.getsource(part.behavior)
-            behavior_lines = behavior_code.splitlines()
-        except Exception:
-            behavior_lines = []
-
-        with open(os.path.join(base_path, 'VHDL', 'architecture.vhd'), 'r') as f:
-            arch_template_content = f.read()
-        arch_template = Template(arch_template_content)
-        architecture_body = arch_template.render(
-            architecture_name=architecture_name,
-            entity_name=entity_name,
-            behavior_lines=behavior_lines
-        )
-    
-    return entity_str + "\n" + architecture_body, None
-
-def generate_code(part, language, output_dir, entity_name, architecture_name, llm, generate_build_script=False):
-    import os
-    import sys
-    
     if llm and part.get_description() == Part.BEHAVIORAL:
 
         try:
@@ -346,20 +251,113 @@ def generate_code(part, language, output_dir, entity_name, architecture_name, ll
 
         llm_client = None
 
-    entity_name_safe = entity_name
     if entity_name.lower() in VHDL_RESERVED_WORDS:
         s = entity_name.encode('utf-8')
         h = hashlib.md5(s).hexdigest()[:6]
-        entity_name_safe = f"{entity_name}_{h}"
+        entity_name = f"{entity_name}_{h}"
 
-    architecture_name_safe = architecture_name
     if architecture_name.lower() in VHDL_RESERVED_WORDS:
         s = architecture_name.encode('utf-8')
         h = hashlib.md5(s).hexdigest()[:6]
-        architecture_name_safe = f"{architecture_name}_{h}"
+        architecture_name = f"{architecture_name}_{h}"
 
     try:
-        code, component_map = _generate_code(part, language=language, entity_name=entity_name_safe, architecture_name=architecture_name_safe, llm_client=llm_client)
+        ports = []
+        for p in part.get_ports(Port.IN) + part.get_ports(Port.OUT):
+            p_type = p.get_type() if hasattr(p, 'get_type') else None
+            is_int = p_type is int or (hasattr(p_type, '__name__') and p_type.__name__ == 'int')
+            vhdl_type = "INTEGER" if is_int else "STD_LOGIC"
+            ports.append({
+                "name": p.get_identifier(),
+                "direction": "in" if p.get_direction() == Port.IN else "out",
+                "type": vhdl_type
+            })
+
+        base_path = os.path.dirname(__file__)
+        with open(os.path.join(base_path, 'VHDL', 'entity.vhd'), 'r') as f:
+            entity_template_content = f.read()
+        entity_template = Template(entity_template_content)
+        
+        entity_str = entity_template.render(entity_name=entity_name, ports=ports)
+        
+        code = ""
+        component_map = None
+
+        # Check if the part is structural (has inner parts)
+        if not part.get_description() == Part.BEHAVIORAL:
+            try:
+                from me.serializer import DiagramSerializer
+                serializer = DiagramSerializer()
+                structure_json = serializer.export_part_to_json(part)
+                architecture_body_content, component_map = _structure_to_vhdl(structure_json)
+                architecture_body = (
+                    f"\narchitecture {architecture_name} of {entity_name} is\n"
+                    f"{architecture_body_content}\n"
+                    f"end {architecture_name};"
+                )
+                code = entity_str + "\n" + architecture_body
+            except Exception as e:
+                raise Exception(f"Error generating structural VHDL: {e}")
+
+        elif llm_client:
+            try:
+                behavior_code = inspect.getsource(part.behavior)
+            except Exception:
+                behavior_code = "-- Could not retrieve source code."
+                
+            attributes = {k: v for k, v in part.__dict__.items() if isinstance(v, (int, float, str, bool)) and not k.startswith('_')}
+
+            # Prepend attributes as assignments to the behavior code
+            # This helps the LLM resolve self.variable references to concrete values
+            attr_header = []
+            for k, v in attributes.items():
+                val_str = f"'{v}'" if isinstance(v, str) else str(v)
+                attr_header.append(f"self.{k} = {val_str}")
+            if attr_header:
+                behavior_code = "\n".join(attr_header) + "\n\n" + behavior_code
+
+            context_lines = ["Entity Context:", "- **Ports**:"]
+            for p in ports:
+                context_lines.append(f"  - {p['name']}: {p['direction']} {p['type']}")
+            if attributes:
+                context_lines.append("- **Configuration**:")
+                for k, v in attributes.items():
+                    context_lines.append(f"  - {k} = {v}")
+            entity_context = "\n".join(context_lines)
+
+            with open(os.path.join(base_path, 'VHDL', 'generation_prompt.txt'), 'r') as f:
+                prompt_template_content = f.read()
+            prompt_template = Template(prompt_template_content)
+            prompt = prompt_template.render(
+                behavior_code=behavior_code,
+                entity_context=entity_context
+            )
+            generated_behavior = llm_client(prompt)
+            indented_behavior = "\n".join(["    " + line for line in generated_behavior.splitlines()])
+            architecture_body = (
+                f"\narchitecture {architecture_name} of {entity_name} is\n"
+                f"begin\n\n"
+                f"{indented_behavior}\n\n"
+                f"end {architecture_name};"
+            )
+            code = entity_str + "\n" + architecture_body
+        else:
+            try:
+                behavior_code = inspect.getsource(part.behavior)
+                behavior_lines = behavior_code.splitlines()
+            except Exception:
+                behavior_lines = []
+
+            with open(os.path.join(base_path, 'VHDL', 'architecture.vhd'), 'r') as f:
+                arch_template_content = f.read()
+            arch_template = Template(arch_template_content)
+            architecture_body = arch_template.render(
+                architecture_name=architecture_name,
+                entity_name=entity_name,
+                behavior_lines=behavior_lines
+            )
+            code = entity_str + "\n" + architecture_body
+
     except Exception as e:
         raise Exception(f"Code generation failed: {e}")
 
@@ -387,7 +385,7 @@ def generate_code(part, language, output_dir, entity_name, architecture_name, ll
         with open(os.path.join(base_path, 'VHDL', 'compile.sh'), 'r') as f:
             script_template_content = f.read()
         script_template = Template(script_template_content)
-        script_content = script_template.render(entity_name=entity_name_safe)
+        script_content = script_template.render(entity_name=entity_name)
         
         script_filename = os.path.join(output_dir, "compile.sh")
         with open(script_filename, "w") as f:
