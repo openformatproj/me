@@ -1,4 +1,6 @@
 library IEEE;
+use IEEE.NUMERIC_STD.ALL;
+use IEEE.MATH_REAL.ALL;
 use IEEE.STD_LOGIC_1164.ALL;
 
 entity {{ entity_name }} is
