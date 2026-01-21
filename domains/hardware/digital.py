@@ -326,7 +326,7 @@ def generate_code(part: Part, language: str, output_dir: str, entity_name: Optio
                     context_lines.append(f"  - {k} = {v}")
             entity_context = "\n".join(context_lines)
 
-            with open(os.path.join(base_path, 'VHDL', 'generation_prompt.txt'), 'r') as f:
+            with open(os.path.join(base_path, 'VHDL', 'generation_prompt.md'), 'r') as f:
                 prompt_template_content = f.read()
             prompt_template = Template(prompt_template_content)
             prompt = prompt_template.render(
