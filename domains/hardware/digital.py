@@ -419,7 +419,7 @@ def generate_code(part: Part, language: str, output_dir: str, entity_name: Optio
         with open(os.path.join(base_path, 'VHDL', 'purge_cache.sh'), 'r') as f:
             script_template_content = f.read()
         script_template = Template(script_template_content)
-        script_content = script_template.render(output_dir=output_dir)
+        script_content = script_template.render()
         
         script_filename = os.path.join(output_dir, "purge_cache.sh")
         with open(script_filename, "w") as f:

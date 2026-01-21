@@ -1,9 +1,9 @@
 #!/bin/bash
 
-if [ -d "{{ output_dir }}/.cache" ]; then
-    rm -rf {{ output_dir }}/.cache
-    echo "Purged {{ output_dir }}/.cache"
-elif [ -d ".cache" ]; then
+# Change to the directory where the script is located
+cd "$(dirname "$0")"
+
+if [ -d ".cache" ]; then
     rm -rf .cache
     echo "Purged .cache"
 else

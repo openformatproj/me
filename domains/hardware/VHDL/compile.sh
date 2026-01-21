@@ -1,6 +1,9 @@
 #!/bin/bash
 set -e
 
+# Change to the directory where the script is located
+cd "$(dirname "$0")"
+
 # Clean up previous artifacts
 rm -f *.cf {{ entity_name }}
 
