@@ -46,6 +46,16 @@ class FFT_Combiner(Part):
     Performs the butterfly operations to combine results from Even and Odd sub-FFTs.
     """
     def __init__(self, identifier: str, n: int):
+        # Fixed-point precision for twiddle factors
+        self.twiddle_precision = 15
+        self.twiddle_scale = 1 << self.twiddle_precision
+        self.twiddle_factors = []
+        for k in range(n // 2):
+            w = cmath.exp(-2j * cmath.pi * k / n)
+            self.twiddle_factors.append(
+                (int(w.real * self.twiddle_scale), int(w.imag * self.twiddle_scale))
+            )
+
         self.n = n
         ports = [
             Port('clk', Port.IN, type=Logic, init_value=Logic.U, semantic=Port.PERSISTENT),
@@ -83,20 +93,21 @@ class FFT_Combiner(Part):
                 o_r = self.read(f'o_r_{k}')
                 o_i = self.read(f'o_i_{k}')
                 
-                # Twiddle factor W_N^k
-                w = cmath.exp(-2j * cmath.pi * k / self.n)
+                # Twiddle factor W_N^k from pre-calculated fixed-point table
+                w_r, w_i = self.twiddle_factors[k]
                 
-                # T = w * odd
-                t_r = w.real * o_r - w.imag * o_i
-                t_i = w.real * o_i + w.imag * o_r
+                # T = w * odd (fixed-point multiplication)
+                # (w_r + j*w_i) * (o_r + j*o_i) = (w_r*o_r - w_i*o_i) + j*(w_r*o_i + w_i*o_r)
+                t_r = (w_r * o_r - w_i * o_i) >> self.twiddle_precision
+                t_i = (w_r * o_i + w_i * o_r) >> self.twiddle_precision
                 
                 # Y[k] = E[k] + T
-                self.write(f'y_r_{k}', int(e_r + t_r))
-                self.write(f'y_i_{k}', int(e_i + t_i))
+                self.write(f'y_r_{k}', e_r + t_r)
+                self.write(f'y_i_{k}', e_i + t_i)
                 
                 # Y[k + N/2] = E[k] - T
-                self.write(f'y_r_{k+half_n}', int(e_r - t_r))
-                self.write(f'y_i_{k+half_n}', int(e_i - t_i))
+                self.write(f'y_r_{k+half_n}', e_r - t_r)
+                self.write(f'y_i_{k+half_n}', e_i - t_i)
             
             self.write('done', Logic.ONE)
         else:
