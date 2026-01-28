@@ -82,7 +82,7 @@ class Testbench(Part):
         event_queues = [EventQueue('timer_q', EventQueue.IN, size=1)]
         
         parts = {
-            'clock': Clock('clock'),
+            'clock': Clock('clock', decimation=100), # Clock period: 100 ms
             'source': Source('source'),
             'dut': Register('dut'),
             'sink': Sink('sink')
