@@ -1,4 +1,4 @@
-def simulate(part, interval_seconds, duration_seconds, trace_filter=None):
+def simulate(part, interval_seconds, duration_seconds, scale_factor=1.0, trace_filter=None):
     from ml.event_sources import Timer
     from ml.tracer import Tracer
     from ml.enums import LogLevel, OnFullBehavior
@@ -7,8 +7,7 @@ def simulate(part, interval_seconds, duration_seconds, trace_filter=None):
     
     # Setup Simulation
     part.init()
-    # The timer drives the clock toggling, i.e. interval_seconds=0.1 -> 100 ms, clock period: 200 ms
-    timer = Timer('timer', interval_seconds=interval_seconds, duration_seconds=duration_seconds, on_full=OnFullBehavior.DROP)
+    timer = Timer('timer', interval_seconds=interval_seconds, duration_seconds=duration_seconds, scale_factor=scale_factor, on_full=OnFullBehavior.DROP)
     
     part.connect_event_source(timer, 'timer_q')
     
