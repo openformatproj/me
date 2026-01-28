@@ -315,8 +315,8 @@ monitor_signals = {
 }
 for i in range(N_POINTS):
     monitor_signals[f'source.x{i}'] = (f'source.x{i}', 16)
-    monitor_signals[f'dut.y{i}_r'] = (f'dut.y{i}_r', 16)
-    monitor_signals[f'dut.y{i}_i'] = (f'dut.y{i}_i', 16)
+    monitor_signals[f'dut.y{i}_r'] = (f'dut.y{i}_r', 32)
+    monitor_signals[f'dut.y{i}_i'] = (f'dut.y{i}_i', 32)
 
 @vcd_monitor('logs/waveforms.vcd', monitor_signals, time_path='clock.time_port')
 class Testbench(Part):
