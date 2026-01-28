@@ -7,23 +7,41 @@ class Clock(Part):
     """
     A clock generator that toggles its output based on incoming time events.
 
-    It receives time events, updates the simulation time on 'time_port',
-    and toggles the 'clk' signal.
+    It receives time events and toggles the 'clk' signal. It also mirrors the
+    simulation time on 'time_port'.
     """
-    def __init__(self, identifier: str):
+    def __init__(self, identifier: str, decimation: int = 2, use_data_port: bool = False):
+        self.use_data_port = use_data_port
         ports = [
             Port('clk', Port.OUT, type=Logic, init_value=Logic.U, semantic=Port.PERSISTENT),
             Port('time_port', Port.OUT, type=float)
         ]
-        event_queues = [EventQueue('time', EventQueue.IN, size=1)]
+        event_queues = []
+        if use_data_port:
+            ports.append(Port('time_in', Port.IN, type=float))
+        else:
+            event_queues.append(EventQueue('time', EventQueue.IN, size=1))
+            
         super().__init__(identifier=identifier, ports=ports, event_queues=event_queues)
         self.state = Logic.U
+        self.decimation = decimation
+        self.counter = 0
 
     def behavior(self):
-        event_queue = self.get_event_queue('time')
-        if not event_queue.is_empty():
+        if self.use_data_port:
+            t = self.read('time_in')
+        else:
+            event_queue = self.get_event_queue('time')
+            if event_queue.is_empty():
+                return
             t = event_queue.pop()
-            self.write('time_port', t)
+
+        self.write('time_port', t)
+        
+        self.counter += 1
+        self.trace_log(f"Clock@counter {self.counter}")
+        if self.counter >= (self.decimation // 2):
+            self.counter = 0
             if self.state == Logic.U:
                 state = Logic.ZERO
             else:

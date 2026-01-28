@@ -1,10 +1,13 @@
 from ml.engine import Part, Port, EventQueue
-from ml.strategies import Execution
-from ml.strategies import all_updated
+from ml.strategies import Execution, all_updated
 from me.domains.hardware.digital import Logic, rising_edge, generate_code
 from me.parts.hardware.digital import Clock, vcd_monitor
+from me.parts.sources.generator import Generator
+from me.parts.converters.adc import ADC
 from me.services import view_diagram, simulate
+from ml.parts import EventToDataSynchronizer
 import cmath
+import math
 
 N_POINTS = 8
 
@@ -209,19 +212,16 @@ class FFT(Part):
     #         else:
     #             self.write('done', Logic.ZERO)
 
-class Source(Part):
+class Controller(Part):
     """
-    Generates reset and input signals for the DUT.
+    Generates reset and start signals.
     """
-    def __init__(self, identifier: str, n: int):
-        self.n = n
+    def __init__(self, identifier: str):
         ports = [
             Port('clk', Port.IN, type=Logic, init_value=Logic.U, semantic=Port.PERSISTENT),
             Port('rst', Port.OUT, type=Logic, init_value=Logic.U, semantic=Port.PERSISTENT),
             Port('start', Port.OUT, type=Logic, init_value=Logic.U, semantic=Port.PERSISTENT),
         ]
-        for i in range(n):
-            ports.append(Port(f'x{i}', Port.OUT, type=int, init_value=0, semantic=Port.PERSISTENT))
         super().__init__(identifier, ports=ports, scheduling_condition=all_updated, scheduling_args=('clk',))
         self.cycle = 0
 
@@ -236,18 +236,54 @@ class Source(Part):
             # Pulse start every 10 cycles
             if (self.cycle - 2) % 10 == 0:
                 self.write('start', Logic.ONE)
-                # DC component test: all 1s
-                for i in range(self.n):
-                    self.write(f'x{i}', 1)
-            elif (self.cycle - 2) % 10 == 5:
-                 # Nyquist test: 1, -1, 1, -1...
-                self.write('start', Logic.ONE)
-                for i in range(self.n):
-                    self.write(f'x{i}', 1 if i % 2 == 0 else -1)
             else:
                 self.write('start', Logic.ZERO)
         
         self.cycle += 1
+
+# def source_parallel_cond(part: Part) -> bool:
+#     # Parallelize all generators and ADCs
+#     return part.get_identifier().startswith('gen_') or part.get_identifier().startswith('adc_')
+
+class Source(Part):
+    """
+    Structural source combining Controller and Waveform Generators + ADCs.
+    """
+    def __init__(self, identifier: str, n: int):
+        ports = [
+            Port('clk', Port.IN, type=Logic, init_value=Logic.U, semantic=Port.PERSISTENT),
+            Port('rst', Port.OUT, type=Logic, init_value=Logic.U, semantic=Port.PERSISTENT),
+            Port('start', Port.OUT, type=Logic, init_value=Logic.U, semantic=Port.PERSISTENT),
+        ]
+        for i in range(n):
+            ports.append(Port(f'x{i}', Port.OUT, type=int, init_value=0, semantic=Port.PERSISTENT))
+        
+        for i in range(n):
+            ports.append(Port(f'gen_{i}_time', Port.IN, type=float))
+
+        parts = {'ctrl': Controller('ctrl')}
+        for i in range(n):
+            # Traveling wave: spatial freq 1 cycle per N, temporal freq 1Hz
+            func = lambda t, k=i: math.sin(2 * math.pi * (k / n) + 2 * math.pi * t)
+            parts[f'gen_{i}'] = Generator(f'gen_{i}', func=func, use_data_port=True)
+            parts[f'adc_{i}'] = ADC(f'adc_{i}', bits=16, v_ref=1.1)
+
+        # parallel_strategy = Execution(
+        #     parallelization_condition=source_parallel_cond,
+        #     mode=ExecutionMode.THREAD
+        # )
+
+        super().__init__(identifier, ports=ports, parts=parts, execution_strategy=Execution.sequential())
+
+        self.wire('clk', 'ctrl.clk')
+        self.wire('ctrl.rst', 'rst')
+        self.wire('ctrl.start', 'start')
+
+        for i in range(n):
+            self.wire(f'gen_{i}_time', f'gen_{i}.time_in')
+            self.wire('clk', f'adc_{i}.clk')
+            self.wire(f'gen_{i}.out', f'adc_{i}.in_analog')
+            self.wire(f'adc_{i}.out_digital', f'x{i}')
 
 class Sink(Part):
     """
@@ -289,7 +325,8 @@ class Testbench(Part):
         event_queues = [EventQueue('timer_q', EventQueue.IN, size=1)]
         
         parts = {
-            'clock': Clock('clock'),
+            'sync': EventToDataSynchronizer('sync', 'event_in', 'time_out', float),
+            'clock': Clock('clock', decimation=100, use_data_port=True), # Clock period: 100 ms
             'source': Source('source', n=N_POINTS),
             'dut': FFT('dut', n=N_POINTS),
             'sink': Sink('sink', n=N_POINTS)
@@ -297,8 +334,14 @@ class Testbench(Part):
         
         super().__init__(identifier, parts=parts, event_queues=event_queues, execution_strategy=Execution.sequential())
         
-        # Wire the Timer event to the Clock
-        self.wire_event('timer_q', 'clock.time')
+        # Wire the Timer event to the Distributor
+        self.wire_event('timer_q', 'sync.event_in')
+        # self.connect_event_queue(self.get_event_queue('timer_q'), parts['sync'].get_event_queue('event_in'))
+        
+        # Wire Synchronizer to Clock and Generators
+        self.wire('sync.time_out', 'clock.time_in')
+        for i in range(N_POINTS):
+            self.wire('sync.time_out', f'source.gen_{i}_time')
         
         # Wire Clock to Source and DUT
         self.wire('clock.clk', 'source.clk')
