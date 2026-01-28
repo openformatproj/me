@@ -105,6 +105,6 @@ class Testbench(Part):
         self.wire('dut.out_0', 'sink.in_0')
 
 if __name__ == "__main__":
-    simulate(Testbench('tb'), 0.1, 3.0)
+    simulate(Testbench('tb'), 0.001, 3.0) # Timer period: 1 ms
     # view_diagram(Testbench('tb'))
     # generate_code(Register('dut'), "VHDL", "gen/register", "register", "rtl", llm=True, generate_build_script=True, generate_purge_script=True)

@@ -363,6 +363,6 @@ if __name__ == "__main__":
     def trace_filter(record):
         return record.event in ['TRANSFER', 'SET_PAYLOAD']
 
-    simulate(Testbench('tb'), 0.1, 3.0, trace_filter, scale_factor=50.0)
+    simulate(Testbench('tb'), 0.001, 3.0, trace_filter, scale_factor=50.0) # Timer period: 1 ms
     # view_diagram(Testbench('tb'))
     # generate_code(FFT('dut', n=N_POINTS), "VHDL", "gen/fft", "fft", "structural", llm=True, generate_build_script=True, generate_purge_script=True)
