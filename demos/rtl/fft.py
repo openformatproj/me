@@ -4,12 +4,16 @@ from me.domains.hardware.digital import Logic, rising_edge, generate_code
 from me.parts.hardware.digital import Clock, vcd_monitor
 from me.parts.sources.generator import Generator
 from me.parts.converters.adc import ADC
+from me.parts.sinks.monitor_client import Monitor
 from me.services import view_diagram, simulate
 from ml.parts import EventToDataSynchronizer
 import cmath
 import math
+import multiprocessing
+import time
 
 N_POINTS = 8
+MONITOR = True
 
 class FFT_Leaf(Part):
     """
@@ -268,6 +272,8 @@ class Source(Part):
         ]
         for i in range(n):
             ports.append(Port(f'x{i}', Port.OUT, type=int, init_value=0, semantic=Port.PERSISTENT))
+            if MONITOR:
+                ports.append(Port(f'wave_{i}', Port.OUT, type=float, semantic=Port.PERSISTENT))
         
         for i in range(n):
             ports.append(Port(f'gen_{i}_time', Port.IN, type=float))
@@ -295,6 +301,8 @@ class Source(Part):
             self.wire('clk', f'adc_{i}.clk')
             self.wire(f'gen_{i}.out', f'adc_{i}.in_analog')
             self.wire(f'adc_{i}.out_digital', f'x{i}')
+            if MONITOR:
+                self.wire(f'gen_{i}.out', f'wave_{i}')
 
 class Sink(Part):
     """
@@ -335,13 +343,25 @@ class Testbench(Part):
     def __init__(self, identifier: str):
         event_queues = [EventQueue('timer_q', EventQueue.IN, size=1)]
         
+        if MONITOR:
+            # Define monitor signals
+            monitor_signals_map = {}
+            for i in range(N_POINTS):
+                monitor_signals_map[f'wave_{i}'] = f'wave_{i}'
+                monitor_signals_map[f'sample_{i}'] = f'sample_{i}'
+                monitor_signals_map[f'fft_r_{i}'] = f'fft_r_{i}'
+                monitor_signals_map[f'fft_i_{i}'] = f'fft_i_{i}'
+
         parts = {
             'sync': EventToDataSynchronizer('sync', 'event_in', 'time_out', float),
             'clock': Clock('clock', decimation=100, use_data_port=True), # Clock period: 100 ms
             'source': Source('source', n=N_POINTS),
             'dut': FFT('dut', n=N_POINTS),
-            'sink': Sink('sink', n=N_POINTS)
+            'sink': Sink('sink', n=N_POINTS),
         }
+
+        if MONITOR:
+            parts['monitor'] = Monitor('monitor', monitor_signals_map, time_port='time', decimation=10)
         
         super().__init__(identifier, parts=parts, event_queues=event_queues, execution_strategy=Execution.sequential())
         
@@ -367,6 +387,15 @@ class Testbench(Part):
             self.wire(f'dut.y{i}_r', f'sink.y{i}_r')
             self.wire(f'dut.y{i}_i', f'sink.y{i}_i')
         
+        if MONITOR:
+            # Monitor wiring
+            self.wire('sync.time_out', 'monitor.time')
+            for i in range(N_POINTS):
+                self.wire(f'source.wave_{i}', f'monitor.wave_{i}')
+                self.wire(f'source.x{i}', f'monitor.sample_{i}')
+                self.wire(f'dut.y{i}_r', f'monitor.fft_r_{i}')
+                self.wire(f'dut.y{i}_i', f'monitor.fft_i_{i}')
+        
         # Wire DUT output to Sink
         self.wire('dut.done', 'sink.done')
 
@@ -374,6 +403,46 @@ if __name__ == "__main__":
     def trace_filter(record):
         return record.event in ['TRANSFER', 'SET_PAYLOAD']
 
-    simulate(Testbench('tb'), 0.001, 3.0, trace_filter, scale_factor=50.0) # Timer period: 1 ms
+    server_process = None
+    if MONITOR:
+        plots = {
+            'Traveling Wave (Analog)': {
+                'type': 'vector',
+                'signals': [f'wave_{i}' for i in range(N_POINTS)],
+                'ylim': (-1.5, 1.5)
+            },
+            'Sampled Wave (Digital)': {
+                'type': 'vector',
+                'signals': [f'sample_{i}' for i in range(N_POINTS)],
+                'ylim': (-35000, 35000)
+            },
+            'FFT Real': {
+                'type': 'bar',
+                'signals': [f'fft_r_{i}' for i in range(N_POINTS)],
+                'ylim': (-150000, 150000)
+            },
+            'FFT Imag': {
+                'type': 'bar',
+                'signals': [f'fft_i_{i}' for i in range(N_POINTS)],
+                'ylim': (-150000, 150000)
+            }
+        }
+
+        def run_server(plots_config):
+            from me.parts.sinks.monitor_server import MonitorServer
+            server = MonitorServer(plots=plots_config)
+            server.start()
+
+        server_process = multiprocessing.Process(target=run_server, args=(plots,))
+        server_process.start()
+        time.sleep(2.0) # Wait for server to start
+
+    try:
+        simulate(Testbench('tb'), 0.001, 3.0, trace_filter, scale_factor=50.0) # Timer period: 1 ms
+    finally:
+        if server_process:
+            server_process.terminate()
+            server_process.join()
+
     # view_diagram(Testbench('tb'))
     # generate_code(FFT('dut', n=N_POINTS), "VHDL", "gen/fft", "fft", "structural", llm=True, generate_build_script=True, generate_purge_script=True)
